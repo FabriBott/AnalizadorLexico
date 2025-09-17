@@ -7,13 +7,18 @@ import static codigo.Tokens.*;
 L=[a-zA-Z_]+
 D=[0-9]+
 espacio=[ \t\r\n]+
+
+%{
+    public String lexeme;
+%}
+
 %%
 
 // ignorar los comentarios 
-\{([^}]|\n)*\} {/*ignorar*/}
-\(\*([^*]|(\*[^)])|\n)*\*\) {/*ignorar*/}
+\{([^}]|\n)*\}     { /*ignorar*/ }
+\(\*([^*]|(\*[^)])|\n)*\*\) { /*ignorar*/ }
 
-//definir palabras reservadas
+// palabras reservadas
 ABSOLUTE|AND|ARRAY|BEGIN|CASE|
 CONST|CONSTRUCTOR|DESTRUCTOR|EXTERNAL|
 DIV|DO|DOWNTO|ELSE|END|FILE|FOR|FORWARD|
@@ -22,49 +27,54 @@ INTERFACE|INTERRUPT|LABEL|MOD|NIL|NOT|
 OBJECT|OF|OR|PACKED|PRIVATE|PROCEDURE|
 RECORD|REPEAT|SET|SHL|SHR|STRING|
 THEN|TO|TYPE|UNIT|UNTIL|USES|
-VAR|VIRTUAL|WHILE|WITH|XOR  {return new Symbol(sym.PALABRARESERVADA, yytext());}
+VAR|VIRTUAL|WHILE|WITH|XOR {
+    lexeme = yytext();
+    return PALABRARESERVADA;
+}
 
-//definir literales
-//strings
-\"[^\n"]*\" { return new Symbol(sym.STRING, yytext()); }
-//chars
-\'[^']\' {return new Symbol(sym.CHAR, yytext());}
-//numero real
-({D}+\.{D}+|\.{D}+)([Ee][+-]?{D}+)? { return new Symbol(sym.REAL, yytext()); }
+// literales
+\"[^\"\n]*\" {
+    lexeme = yytext();
+    return STRING;
+}
 
-//definir operadores
-"+"
-|"-"
-|"*"
-|"/"
-|"DIV"
-|"MOD"
-|"NOT"
-|"AND"
-|"OR"
-|"="
-|"<>"
-|"<"
-|">"
-|"<="
-|">="
-|"IN"
-|","
-|";"
-|"++"
-|"--"
-|"("
-|")"
-|"["
-|"]"
-|":"
-|"."
-|"^"
-|"**"
-  {return new Symbol(sym.OPERADORES, yytext());}
+// Char: un solo carácter entre comillas simples
+'[^'\n]' {
+    lexeme = yytext();
+    return CHAR;
+}
 
-//definir identificadores
-{L}({L}|{D}){0,126} { 
-    String id = yytext().toUpperCase();
-    return new Symbol(sym.IDENTIFICADOR, id); 
+// números reales con opcional exponente
+({D}+\.{D}+|\.{D}+)([Ee][+-]?{D}+)? {
+    lexeme = yytext();
+    return REAL;
+}
+
+// operadores
+("+"|"-"|"*"|"/"|"DIV"|"MOD"|"NOT"|"AND"|"OR"|"="|"<>"
+|"<"|">"|"<="|">="|"IN"|","|";"|"++"|"--"|"("|")"
+|"["|"]"|":"|"."|"^"|"**") {
+    lexeme = yytext();
+    return OPERADORES;
+}
+
+// identificadores
+{L}({L}|{D}){0,126} {
+    lexeme = yytext();
+    return IDENTIFICADOR;
+}
+
+// enteros
+{D}+ {
+    lexeme = yytext();
+    return ENTERO;
+}
+
+// ignorar espacios
+{espacio} { /*ignorar*/ }
+
+// cualquier otro caracter => ERROR
+. {
+    lexeme = yytext();
+    return ERROR;
 }
