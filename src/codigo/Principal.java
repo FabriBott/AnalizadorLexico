@@ -4,7 +4,7 @@ import jflex.Main;
 
 public class Principal {
     public static void main(String[] args) {
-        String ruta = "C:/Users/fabri/OneDrive/Escritorio/2doSem/s/AnalizadorLexico/src/codigo/Lexer.flex";
+        String ruta = "src/codigo/Lexer.flex";
         generarLexer(ruta);
     }
     

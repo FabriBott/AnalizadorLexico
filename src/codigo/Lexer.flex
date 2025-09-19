@@ -4,12 +4,17 @@ import static codigo.Tokens.*;
 %%
 %class Lexer
 %type Tokens
+%unicode
+%line
+%column
+
 L=[a-zA-Z_]+
 D=[0-9]+
 espacio=[ \t\r\n]+
 
 %{
     public String lexeme;
+    public int getLine() { return yyline + 1; }  // líneas en base 1
 %}
 
 %%

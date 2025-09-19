@@ -1,11 +1,10 @@
 VAR
   x := 10;
   y := 3.14;
-  mensaje := "Hola Mundo";
+  mensaje := "Hola";
   caracter := 'A';
-
 BEGIN
-  x := x + y;
+  x := x + y; x := x + 10;
   writeln(mensaje);
-  z := #$%  (* <- esto es inválido y debería dar ERROR *)
+  z := #$%  (* inválido *)
 END.
