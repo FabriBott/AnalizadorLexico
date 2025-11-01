@@ -13,11 +13,15 @@ import java.io.PrintWriter;
 import java.io.Reader;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import java_cup.runtime.Symbol;
+
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.List;
 import java.util.TreeMap;
 
 
@@ -25,6 +29,9 @@ import java.util.TreeMap;
  *
  * @author fabri
  */
+// Guarda cada token que sale del lexer con su tipo, lexema, línea y columna
+record Occ(String tipo, String lexema, int linea, int col) {}
+
 public class FrmPrincipal extends javax.swing.JFrame {
 
     /**
@@ -143,15 +150,18 @@ public class FrmPrincipal extends javax.swing.JFrame {
         try {
             guardarEntrada(archivo, txtEntrada.getText());
 
-            // stats: lexema -> (linea -> conteo)
-            Map<String, Map<Integer, Integer>> stats = new TreeMap<>();
-            // tipoPorLexema: primer tipo observado por lexema
-            Map<String, Tokens> tipoPorLexema = new HashMap<>();
-            // errores: línea -> lista de fragmentos inválidos en esa línea
-            Map<Integer, java.util.List<String>> erroresPorLinea = new TreeMap<>();
+            // NUEVO: lista de ocurrencias token a token (tipo, lexema, línea, col)
+            List<Occ> ocurrencias = new ArrayList<>();
 
-            analizarArchivo(archivo, stats, tipoPorLexema, erroresPorLinea);
-            String resumen = construirResumen(stats, tipoPorLexema, erroresPorLinea);
+            // Errores léxicos y sintácticos
+            Map<Integer, java.util.List<String>> erroresPorLinea = new TreeMap<>();
+            List<String> erroresSintacticos = new ArrayList<>();
+
+            // Analiza y llena ocurrencias + errores
+            analizarArchivo(archivo, ocurrencias, erroresPorLinea, erroresSintacticos);
+
+            // Construye un resumen correcto por TIPO -> lexema -> posiciones
+            String resumen = construirResumen(ocurrencias, erroresPorLinea, erroresSintacticos);
             txtResultado.setText(resumen);
 
         } catch (Exception ex) {
@@ -160,7 +170,6 @@ public class FrmPrincipal extends javax.swing.JFrame {
         }
     }
 
-    
     // ===== 2) Guardar entrada (Responsabilidad: IO de entrada) =====
     private void guardarEntrada(File archivo, String contenido) throws FileNotFoundException {
         //Escribe exactamente lo que hay en txtEntrada a archivo.txt.
@@ -169,115 +178,109 @@ public class FrmPrincipal extends javax.swing.JFrame {
         }
     }
     
-    // ===== 3) Analizar y acumular (Responsabilidad: dominio/lexer) =====
+  // ===== 3) Analizar y acumular =====
     private void analizarArchivo(
             File archivo,
-            Map<String, Map<Integer, Integer>> stats,
-            Map<String, Tokens> tipoPorLexema,
-            Map<Integer, java.util.List<String>> erroresPorLinea
+            List<Occ> ocurrencias,
+            Map<Integer, java.util.List<String>> erroresPorLinea,
+            List<String> erroresSintacticos
     ) throws IOException {
 
+        // --- Análisis Léxico ---
         try (Reader lector = new BufferedReader(new FileReader(archivo))) {
             Lexer lexer = new Lexer(lector);
-            Tokens token;
+            Symbol token;
 
-            // Buffer para agrupar errores consecutivos en la misma línea
-            StringBuilder errorBuffer = null;
-            int errorLine = -1;
+            while (true) {
+                token = lexer.next_token();
+                if (token.sym == sym.EOF) break;
 
-            while ((token = lexer.yylex()) != null) {
-                int line = lexer.getLine();
-
-                if (token == Tokens.ERROR) {
-                    // Abrir o continuar el buffer de error en esta línea
-                    if (errorBuffer == null) {
-                        errorBuffer = new StringBuilder();
-                        errorLine = line;
-                    }
-                    // Si cambia de línea, cerramos el error anterior
-                    if (line != errorLine) {
-                        // guardar error anterior
-                        erroresPorLinea
-                            .computeIfAbsent(errorLine, k -> new ArrayList<>())
-                            .add(errorBuffer.toString());
-                        // reiniciar para la nueva línea
-                        errorBuffer = new StringBuilder();
-                        errorLine = line;
-                    }
-                    // añadir el lexema inválido (carácter o secuencia capturada)
-                    errorBuffer.append(lexer.lexeme);
-                    continue; // no contamos en stats
-                }
-
-                // Si había un error pendiente y llegó un token válido, cerrarlo
-                if (errorBuffer != null) {
+                if (token.sym == sym.ERROR) {
+                    String errorLexema = String.valueOf(token.value);
                     erroresPorLinea
-                        .computeIfAbsent(errorLine, k -> new ArrayList<>())
-                        .add(errorBuffer.toString());
-                    errorBuffer = null;
-                    errorLine = -1;
+                        .computeIfAbsent(token.left, k -> new ArrayList<>())
+                        .add(errorLexema);
+                    continue;
                 }
 
-                // ---- Tokens válidos: acumular para el resumen ----
-                String lex = lexer.lexeme;
+                // Guarda cada ocurrencia con su TIPO, lexema, línea y columna
+                String tipo   = sym.terminalNames[token.sym];
+                String lexema = String.valueOf(token.value);
+                ocurrencias.add(new Occ(tipo, lexema, token.left, token.right));
+            }
+        }
 
-                tipoPorLexema.putIfAbsent(lex, token);
-                stats.computeIfAbsent(lex, k -> new TreeMap<>())
-                     .merge(line, 1, Integer::sum);
+        // --- Análisis Sintáctico ---
+        try (Reader lector2 = new BufferedReader(new FileReader(archivo))) {
+            Lexer lexer2 = new Lexer(lector2);
+            Parser parser = new Parser(lexer2);
+
+            try {
+                parser.parse();
+            } catch (Exception e) {
+                erroresSintacticos.add("Error durante parsing: " + e.getMessage());
             }
 
-            // EOF: si quedó un error pendiente, guardarlo
-            if (errorBuffer != null) {
-                erroresPorLinea
-                    .computeIfAbsent(errorLine, k -> new ArrayList<>())
-                    .add(errorBuffer.toString());
+            java.util.List<String> erroresParser = parser.getErroresSintacticos();
+            if (erroresParser != null && !erroresParser.isEmpty()) {
+                erroresSintacticos.addAll(erroresParser);
             }
+
+        } catch (Exception e) {
+            erroresSintacticos.add("Error en análisis sintáctico: " + e.getMessage());
         }
     }
 
-    
-    // ===== 4) Construir salida (Responsabilidad: presentación) =====
+    // ===== 4) Construir salida =====
     private String construirResumen(
-            Map<String, Map<Integer, Integer>> stats,
-            Map<String, Tokens> tipoPorLexema,
-            Map<Integer, java.util.List<String>> erroresPorLinea
+            List<Occ> ocurrencias,
+            Map<Integer, java.util.List<String>> erroresPorLinea,
+            List<String> erroresSintacticos
     ) {
         StringBuilder out = new StringBuilder();
 
-        // ---- Sección: Tokens válidos ----
         out.append("=== Resumen de Tokens (sin errores) ===\n");
         out.append(String.format("%-24s  %-20s  %s\n",
-                "TOKEN (lexema)", "TIPO", "OCURRENCIAS POR LÍNEA"));
+                "TOKEN (lexema)", "TIPO", "OCURRENCIAS POR LINEA"));
         out.append("-------------------------------------------------------------------------------\n");
 
-        for (Map.Entry<String, Map<Integer, Integer>> e : stats.entrySet()) {
-            String lexema = e.getKey();
-            Tokens tipo   = tipoPorLexema.get(lexema);
+    // Indice: agrupado por TIPO -> lexema -> lista de posiciones "l.x:y"
+        Map<String, Map<String, List<String>>> idx = new TreeMap<>();
 
-            StringBuilder porLineaStr = new StringBuilder();
-            boolean first = true;
-            for (Map.Entry<Integer, Integer> lc : e.getValue().entrySet()) {
-                if (!first) porLineaStr.append(", ");
-                first = false;
-                porLineaStr.append("l. ").append(lc.getKey()).append(":").append(lc.getValue());
-            }
-
-            out.append(String.format("%-24s  %-20s  %s\n",
-                    lexema, tipo, porLineaStr.toString()));
+        for (Occ o : ocurrencias) {
+            idx.computeIfAbsent(o.tipo(), k -> new TreeMap<>())
+            .computeIfAbsent(o.lexema(), k -> new ArrayList<>())
+            .add("l. " + o.linea() + ":" + o.col());
         }
 
-        // ---- Sección: Errores léxicos ----
+        for (var eTipo : idx.entrySet()) {
+            String tipo = eTipo.getKey();
+            for (var eLex : eTipo.getValue().entrySet()) {
+                String lexema = eLex.getKey();
+                String pos = String.join(", ", eLex.getValue());
+                out.append(String.format("%-24s  %-20s  %s\n", lexema, tipo, pos));
+            }
+        }
+
+        // ---- Errores léxicos ----
         out.append("\n=== Errores léxicos ===\n");
         if (erroresPorLinea.isEmpty()) {
             out.append("No se encontraron errores léxicos.\n");
         } else {
-            // Por cada línea, lista los fragmentos inválidos encontrados en esa línea
             for (Map.Entry<Integer, java.util.List<String>> entry : erroresPorLinea.entrySet()) {
                 int line = entry.getKey();
-                java.util.List<String> frags = entry.getValue();
-                // Unir múltiples fragmentos de la misma línea: "#$%", "@@", etc.
-                String unidos = String.join(" | ", frags);
+                String unidos = String.join(" | ", entry.getValue());
                 out.append("l. ").append(line).append(": ").append(unidos).append("\n");
+            }
+        }
+
+        // ---- Errores sintácticos ----
+        out.append("\n=== Errores sintácticos ===\n");
+        if (erroresSintacticos.isEmpty()) {
+            out.append("No se encontraron errores sintácticos.\n");
+        } else {
+            for (String error : erroresSintacticos) {
+                out.append(error).append("\n");
             }
         }
 
