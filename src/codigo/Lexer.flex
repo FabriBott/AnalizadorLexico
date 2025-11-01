@@ -1,85 +1,150 @@
 package codigo;
-import static codigo.Tokens.*;
+
+import java_cup.runtime.*;
 
 %%
 %class Lexer
-%type Tokens
-%unicode
+%unicode 
+%cup    
 %line
 %column
 
-L=[a-zA-Z_]+
-D=[0-9]+
-espacio=[ \t\r\n]+
-
 %{
-    public String lexeme;
-    public int getLine() { return yyline + 1; }  // líneas en base 1
+    private Symbol symbol(int type) {
+        return new Symbol(type, yyline + 1, yycolumn + 1, yytext());
+    }
+    
+    private Symbol symbol(int type, Object value) {
+        return new Symbol(type, yyline + 1, yycolumn + 1, value);
+    }
+    
+    private Symbol keywordOr(String lex, int defaultType) {
+        String up = lex.toUpperCase();
+        switch (up) {
+            case "PROGRAM":   return symbol(sym.PROGRAM);
+            case "BEGIN":     return symbol(sym.BEGIN);
+            case "END":       return symbol(sym.END);
+            case "VAR":       return symbol(sym.VAR);
+            case "INT":       return symbol(sym.INT);
+            case "REAL":      return symbol(sym.REAL);
+            case "CHAR":      return symbol(sym.CHAR);
+            case "STRING":    return symbol(sym.STRING);
+            case "FUNCTION":  return symbol(sym.FUNCTION);
+            case "PROCEDURE": return symbol(sym.PROCEDURE);
+            case "RETURN":    return symbol(sym.RETURN);
+            case "IF":        return symbol(sym.IF);
+            case "THEN":      return symbol(sym.THEN);
+            case "ELSE":      return symbol(sym.ELSE);
+            case "WHILE":     return symbol(sym.WHILE);
+            case "DO":        return symbol(sym.DO);
+            case "FOR":       return symbol(sym.FOR);
+            case "TO":        return symbol(sym.TO);
+            case "READ":      return symbol(sym.READ);
+            case "WRITE":     return symbol(sym.WRITE);
+            case "AND":       return symbol(sym.AND);
+            case "OR":        return symbol(sym.OR);
+            case "NOT":       return symbol(sym.NOT);
+            case "DIV":       return symbol(sym.DIV);
+            case "MOD":       return symbol(sym.MOD);
+            default:          return symbol(defaultType, lex);
+        }
+    }
 %}
 
+D               = [0-9]
+LineTerminator  = \r|\n|\r\n
+WhiteSpace      = {LineTerminator} | [ \t\f]
+
+/* Identificadores */
+Identifier      = [a-zA-Z][a-zA-Z0-9_]*
+
+/* Literales numéricos */
+IntegerLiteral  = {D}+
+RealLiteral     = ( {D}+\.{D}+ | {D}+\. | \.{D}+ ) ([Ee][+-]?{D}+)? | {D}+[Ee][+-]?{D}+
+
+/* Otros literales */
+CharLiteral     = \'([^\\\']|\\.)\'
+StringLiteral   = \"([^\\\"]|\\.)*\"
+
+/* Comentarios (3 estilos) */
+LineComment     = "//" [^\r\n]*
+BraceComment    = "{" [^}]* "}"
+StarComment     = "(*" ([^*]|\*+[^)])* "*)"
+
 %%
+/* --- Ignorar comentarios y espacios --- */
+{LineComment}  { /* Ignorar */ }
+{BraceComment} { /* Ignorar */ }
+{StarComment}  { /* Ignorar */ }
+{WhiteSpace}   { /* Ignorar */ }
 
-// ignorar los comentarios 
-\{([^}]|\n)*\}     { /*ignorar*/ }
-\(\*([^*]|(\*[^)])|\n)*\*\) { /*ignorar*/ }
-
-// palabras reservadas
-ABSOLUTE|AND|ARRAY|BEGIN|CASE|
-CONST|CONSTRUCTOR|DESTRUCTOR|EXTERNAL|
-DIV|DO|DOWNTO|ELSE|END|FILE|FOR|FORWARD|
-FUNCTION|GOTO|IF|IMPLEMENTATION|IN|INLINE|
-INTERFACE|INTERRUPT|LABEL|MOD|NIL|NOT|
-OBJECT|OF|OR|PACKED|PRIVATE|PROCEDURE|
-RECORD|REPEAT|SET|SHL|SHR|STRING|
-THEN|TO|TYPE|UNIT|UNTIL|USES|
-VAR|VIRTUAL|WHILE|WITH|XOR {
-    lexeme = yytext();
-    return PALABRARESERVADA;
+/* id seguido de ':=' -> asignación; NO es una declaración */
+{Identifier}([ \t\f\r\n])*:= {
+    String t   = yytext();
+    String lex = t.substring(0, t.length()-2).trim(); // quita ':='
+    yypushback(2);
+    return keywordOr(lex, sym.ID);
 }
 
-// literales
-\"[^\"\n]*\" {
-    lexeme = yytext();
-    return STRING;
+{Identifier} {
+    String lex = yytext();
+    String up = lex.toUpperCase();
+    switch (up) {
+        case "PROGRAM": return symbol(sym.PROGRAM);
+        case "BEGIN": return symbol(sym.BEGIN);
+        case "END": return symbol(sym.END);
+        case "VAR": return symbol(sym.VAR);
+        case "INT": return symbol(sym.INT);
+        case "REAL": return symbol(sym.REAL);
+        case "CHAR": return symbol(sym.CHAR);
+        case "STRING": return symbol(sym.STRING);
+        case "FUNCTION": return symbol(sym.FUNCTION);
+        case "PROCEDURE": return symbol(sym.PROCEDURE);
+        case "RETURN": return symbol(sym.RETURN);
+        case "IF": return symbol(sym.IF);
+        case "THEN": return symbol(sym.THEN);
+        case "ELSE": return symbol(sym.ELSE);
+        case "WHILE": return symbol(sym.WHILE);
+        case "DO": return symbol(sym.DO);
+        case "FOR": return symbol(sym.FOR);
+        case "TO": return symbol(sym.TO);
+        case "READ": return symbol(sym.READ);
+        case "WRITE": return symbol(sym.WRITE);
+        case "AND": return symbol(sym.AND);
+        case "OR": return symbol(sym.OR);
+        case "NOT": return symbol(sym.NOT);
+        case "DIV": return symbol(sym.DIV);
+        case "MOD": return symbol(sym.MOD);
+        default: return symbol(sym.ID, lex);
+    }
 }
 
-// Char: un solo carácter entre comillas simples
-'[^'\n]' {
-    lexeme = yytext();
-    return CHAR;
-}
+/* Operadores y signos de puntuación */
+":="          { return symbol(sym.ASSIGN); }
+";"           { return symbol(sym.SEMI); }
+","           { return symbol(sym.COMMA); }
+"("           { return symbol(sym.LPAREN); }
+")"           { return symbol(sym.RPAREN); }
+"="           { return symbol(sym.EQ); }
+"<>"          { return symbol(sym.NEQ); }
+"<"           { return symbol(sym.LT); }
+"<="          { return symbol(sym.LE); }
+">"           { return symbol(sym.GT); }
+">="          { return symbol(sym.GE); }
+"+"           { return symbol(sym.PLUS); }
+"-"           { return symbol(sym.MINUS); }
+"*"           { return symbol(sym.TIMES); }
+"/"           { return symbol(sym.SLASH); }
+":"           { return symbol(sym.COLON); }
+"++"          { return symbol(sym.INC); }
+"--"          { return symbol(sym.DEC); }
 
-// números reales con opcional exponente
-({D}+\.{D}+|\.{D}+)([Ee][+-]?{D}+)? {
-    lexeme = yytext();
-    return REAL;
-}
+/* Literales */
+{RealLiteral}    { return symbol(sym.REAL_LIT, yytext()); }
+{IntegerLiteral} { return symbol(sym.INT_LIT, yytext()); }
+{CharLiteral}    { return symbol(sym.CHAR_LIT, yytext()); }
+{StringLiteral}  { return symbol(sym.STRING_LIT, yytext()); }
 
-// operadores
-("+"|"-"|"*"|"/"|"DIV"|"MOD"|"NOT"|"AND"|"OR"|"="|"<>"
-|"<"|">"|"<="|">="|"IN"|","|";"|"++"|"--"|"("|")"
-|"["|"]"|":"|"."|"^"|"**") {
-    lexeme = yytext();
-    return OPERADORES;
-}
-
-// identificadores
-{L}({L}|{D}){0,126} {
-    lexeme = yytext();
-    return IDENTIFICADOR;
-}
-
-// enteros
-{D}+ {
-    lexeme = yytext();
-    return ENTERO;
-}
-
-// ignorar espacios
-{espacio} { /*ignorar*/ }
-
-// cualquier otro caracter => ERROR
-. {
-    lexeme = yytext();
-    return ERROR;
-}
+/* Error léxico */
+.             { return symbol(sym.ERROR, yytext()); }
+<<EOF>>       { return symbol(sym.EOF); }

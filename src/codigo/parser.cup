@@ -1,0 +1,576 @@
+package codigo;
+import java_cup.runtime.Symbol;
+import java.util.*;
+
+
+/* código del parser */
+parser code {:
+    private java.util.List<String> erroresSintacticos = new java.util.ArrayList<>();
+    public java.util.List<String> getErroresSintacticos() { return erroresSintacticos; }
+
+    private int ultimaLineaError = -1; // para evitar cascada
+    //private int ultimaColumnaError = -1; 
+
+    private String tok(Symbol s){
+        if(s == null || s.value == null) return "<EOF>";
+        return String.valueOf(s.value);
+    }
+
+    /** registrar error (se puede modificar o extender los casos de errores...)*/
+    private void addErr(int line, int col, String msg){
+        // Silencia todos los errores adicionales en la misma línea
+        if (line == ultimaLineaError) return;
+        ultimaLineaError = line;
+
+        String out = String.format("[Línea %d, Col %d] ERROR SINTACTICO: %s", line, col, msg);
+        erroresSintacticos.add(out);
+        System.out.println(out);
+    }
+    @Override
+    public void syntax_error(Symbol s) {
+        int linea = (s.left > 0) ? s.left : -1;
+        int col   = (s.right > 0) ? s.right : -1;
+
+        String tokenStr = tok(s);
+        String mensaje = "";
+        
+        // Mensajes específicos para tokens comunes que causan errores
+        if (tokenStr.equals("<EOF>")) {
+            mensaje = "Fin de archivo inesperado. ¿Falta el bloque principal BEGIN...END?";
+        } else if (tokenStr.equals(")")) {
+            mensaje = "Paréntesis de cierre ')' inesperado. ¿Falta un parámetro o expresión?";
+        } else if (tokenStr.equals("Begin")) {
+            mensaje = "'Begin' inesperado. ¿Falta cerrar una estructura anterior?";
+        } else if (tokenStr.equals(";")) {
+            mensaje = "Punto y coma ';' inesperado. ¿Falta una sentencia o declaración?";
+        } else if (tokenStr.equals("End")) {
+            mensaje = "'End' inesperado. ¿Falta un 'Begin' correspondiente?";
+        } else if (tokenStr.equals("Else")) {
+            mensaje = "'Else' inesperado. ¿Falta un 'If Then' antes?";
+        } else if (tokenStr.equals("Then")) {
+            mensaje = "'Then' inesperado. ¿Falta la condición después del 'If'?";
+        } else if (tokenStr.equals("Do")) {
+            mensaje = "'Do' inesperado. ¿Falta la condición después del 'While' o expresión después del 'For To'?";
+        } else if (tokenStr.equals(":")) {
+            mensaje = "Dos puntos ':' inesperados. ¿En declaración de variables o tipo de retorno?";
+        } else if (tokenStr.equals(",")) {
+            mensaje = "Coma ',' inesperada. ¿En lista de parámetros o declaración de variables?";
+        } else if (tokenStr.equals(":=")) {
+            mensaje = "Asignación ':=' inesperada. ¿Falta el identificador a la izquierda?";
+        } else if (tokenStr.equals("(")) {
+            mensaje = "Paréntesis de apertura '(' inesperado. ¿En llamada a función o expresión?";
+        } else {
+            mensaje = "Token inesperado '" + tokenStr + "'";
+        }
+        
+        addErr(linea, col, mensaje);
+        if (s != null) {
+            switch (s.sym) {
+                case sym.SEMI:
+                case sym.END:
+                case sym.RPAREN:
+                    ultimaLineaError = -1;
+                    break;
+            }
+        }
+    }
+
+    @Override
+    public void unrecovered_syntax_error(Symbol s) {
+        int linea = (s.left > 0) ? s.left : -1;
+        int col   = (s.right > 0) ? s.right : -1;
+
+        String tokenStr = tok(s);
+        
+        addErr(linea, col,
+            "Error sintáctico no recuperable cerca de '" + tokenStr + "'. " +
+            "El parser no puede continuar desde este punto. " +
+            "Revise la sintaxis de las estructuras anteriores.");
+    }
+:};
+
+action code {: // Código para el analisis semántico
+:};
+
+/* DECLARACIÓN DE TOKENS (terminales) */
+
+/* Palabras reservadas */
+terminal ABSOLUTE, AND, ARRAY, BEGIN, CASE, CONST, CONSTRUCTOR, DESTRUCTOR,
+         DIV, DO, DOWNTO, ELSE, END, EXTERNAL, FILE, FOR, FORWARD,
+         FUNCTION, GOTO, IF, IMPLEMENTATION, IN, INLINE, INTERFACE,
+         INTERRUPT, LABEL, MOD, NIL, NOT, OBJECT, OF, OR, PACKED, PRIVATE,
+         PROCEDURE, PROGRAM, RECORD, REPEAT, SET, SHL, SHR, THEN, TO, TYPE,
+         UNIT, UNTIL, USES, VAR, VIRTUAL, WHILE, WITH, WRITE, READ,
+         INT, REAL, CHAR, STRING, RETURN;
+
+/* Literales */
+terminal String STRING_LIT;
+terminal String CHAR_LIT;
+terminal String REAL_LIT;
+terminal String INT_LIT;
+
+/* Operadores / símbolos simples */
+terminal ASSIGN, SEMI, COMMA, LPAREN, RPAREN;
+terminal EQ, NEQ, LE, GE, LT, GT;
+terminal PLUS, MINUS, TIMES, SLASH, COLON;
+terminal INC, DEC;
+
+/* Identificadores y error léxico */
+terminal String ID;
+terminal ERROR;
+
+
+/*  NO TERMINALES  */
+non terminal Object programa;
+non terminal Object decls_globales_opt;
+non terminal Object lista_decl_var;
+non terminal Object decl_var;
+non terminal Object lista_ids;
+non terminal Object tipo;
+non terminal Object funcs_opt;
+non terminal Object lista_func;
+non terminal Object funcion;
+non terminal Object params_formales_opt;
+non terminal Object lista_params_formales;
+non terminal Object param_formal;
+non terminal Object bloque_func;
+non terminal Object bloque_main;
+non terminal Object bloque;
+non terminal Object lista_sentencias;
+non terminal Object sentencia;
+non terminal Object asignacion;
+non terminal Object llamada_funcion_stmt;
+non terminal Object read_stmt;
+non terminal Object write_stmt;
+non terminal Object if_stmt;
+non terminal Object while_stmt;
+non terminal Object for_stmt;
+non terminal Object parametros_llamada_opt;
+non terminal Object lista_expresiones;
+non terminal Object expresion;
+non terminal Object condicion;
+non terminal Object factor;
+non terminal Object decls_locales_opt;
+
+/* PRECEDENCIAS  */
+precedence left OR, AND;
+precedence right NOT;
+precedence nonassoc EQ, NEQ, LT, LE, GT, GE;
+precedence left PLUS, MINUS, INC, DEC;
+precedence left TIMES, SLASH, DIV, MOD;
+
+start with programa;
+
+/* REGLAS DE LA GRAMÁTICA */
+
+/*  Programa completo 
+
+   PROGRAM Nombre
+   [Globales]
+   [Funciones]
+   BEGIN
+      ...sentencias...
+   END
+*/
+programa
+  ::= PROGRAM ID decls_globales_opt funcs_opt bloque_main
+      {: RESULT = null; :}
+  | PROGRAM ID decls_globales_opt funcs_opt error
+      {: 
+        addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left, 
+               ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right, 
+               "FALTA EL BLOQUE PRINCIPAL. Todo programa debe tener: BEGIN ... END"); 
+      :}
+  | error
+      {: 
+        addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left, 
+               ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right, 
+               "El archivo debe iniciar con 'Program <id>' seguido del bloque principal BEGIN...END"); 
+      :}
+  ;
+
+/*  Declaraciones globales 
+   VAR
+       nombre, apellido : STRING;
+       contador : INT;
+*/
+/* Lista de declaraciones globales */
+decls_globales_opt
+  ::= VAR lista_decl_var
+      {: RESULT = null; :}
+  | VAR error
+      {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right, "Seccion VAR mal formada: usa 'id [, id]* : tipo ;'."); :}
+  | /* vacío */
+      {: RESULT = null; :}
+  ;
+
+lista_decl_var
+  ::= lista_decl_var decl_var
+      {: RESULT = null; :}
+  | decl_var
+      {: RESULT = null; :}
+  ;
+
+decl_var
+  ::= ID:id COLON tipo SEMI
+      {: RESULT = null; :}
+  | ID:id COMMA lista_ids COLON tipo SEMI
+      {: RESULT = null; :}
+  | ID:id error
+      {: addErr(idleft, idright, "Declaracion de variable: despues de '" + id + "' se esperaba ':' tipo ';' o ', id'."); :}
+  | ID:id COLON tipo error
+      {: addErr(idleft, idright, "Declaracion de variable: falta ';' despues de '" + id + " : tipo'."); :}
+  ;
+
+lista_ids
+  ::= ID
+      {: RESULT = null; :}
+  | lista_ids COMMA ID
+      {: RESULT = null; :}
+  ;
+
+/* tipos válidos:
+   int, char, string, real  :contentReference[oaicite:3]{index=3}
+*/
+tipo
+  ::= INT    {: RESULT = "INT";    :}
+  | REAL     {: RESULT = "REAL";   :}
+  | CHAR     {: RESULT = "CHAR";   :}
+  | STRING   {: RESULT = "STRING"; :}
+  ;
+
+/*  Lista de funciones  
+   FUNCTION / PROCEDURE f (tipo x, tipo y, … ) : TipoRetorno
+   BEGIN
+      [ declaracion(es) locales tipo VAR ... ]
+      [ cuerpo ]
+      f := valorRetorno;
+   END
+
+   Los PROCEDURE no tienen tipo de retorno ni asignación final
+   (o sea no llevan " : TipoRetorno" ni "f := ...;")
+   :contentReference[oaicite:4]{index=4}
+*/
+funcs_opt
+  ::= lista_func
+      {: RESULT = null; :}
+  | /* vacío */
+      {: RESULT = null; :}
+  ;
+
+lista_func
+  ::= lista_func funcion
+      {: RESULT = null; :}
+  | funcion
+      {: RESULT = null; :}
+  ;
+
+/* 
+   - FUNCTION con tipo de retorno
+   - PROCEDURE sin tipo de retorno
+*/
+funcion
+ ::= FUNCTION ID LPAREN params_formales_opt RPAREN COLON tipo bloque_func
+      {: RESULT = null; :}
+  | FUNCTION ID:fname LPAREN error RPAREN COLON tipo bloque_func
+      {: addErr(fnameleft, fnameright, 
+                "FUNCIÓN '" + fname + "': Parámetros formales mal definidos. Formato esperado: 'tipo id, tipo id, ...'"); :} 
+  | PROCEDURE ID LPAREN params_formales_opt RPAREN bloque_func
+      {: RESULT = null; :}
+  | PROCEDURE ID:pfname LPAREN error RPAREN bloque_func
+      {: addErr(pfnameleft, pfnameright, 
+                "Parámetros mal formados en PROCEDURE '" + pfname + "'. Formato: 'tipo id' o vacío"); :}
+  ;
+/* Parámetros formales:
+   la especificación indica que "(tipo x, tipo y, …)".
+   Eso es [tipo ID] separados por comas. Ej: INT x, REAL y
+*/
+params_formales_opt
+  ::= lista_params_formales
+      {: RESULT = null; :}
+  | /* vacío */
+      {: RESULT = null; :}
+  ;
+
+lista_params_formales
+  ::= lista_params_formales COMMA param_formal
+      {: RESULT = null; :}
+  | param_formal
+      {: RESULT = null; :}
+  ;
+
+/* Parámetros formales mejorados */
+param_formal
+  ::= tipo ID:id
+      {: RESULT = null; :}
+  | tipo error
+      {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left, 
+                ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right, 
+                "Falta el identificador después del tipo en parámetro formal"); :}
+  ;
+/* bloque_func:
+   BEGIN
+      [declaraciones locales VAR ... ;]
+      [sentencias...]
+      [opcionalmente "id_funcion := valorRetorno;" si es FUNCTION]
+   END
+*/
+
+bloque_func
+  ::= decls_locales_opt BEGIN lista_sentencias END
+      {: RESULT = null; :}
+  | decls_locales_opt BEGIN error END
+      {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right, "Cuerpo de funcion/procedimiento mal formado: verifica sentencias y ';'."); :}
+  ;
+/* la asignación de retorno solo aplica a FUNCTION
+   f := expr ;
+   Puede NO venir (caso de PROCEDURE)
+*/
+decls_locales_opt
+  ::= VAR lista_decl_var
+      {: RESULT = null; :}
+  | /* vacío */
+      {: RESULT = null; :}
+  ;
+
+/*  Bloques BEGIN...END 
+
+   Main del programa:
+   BEGIN
+     ...sentencias...
+   END
+*/
+bloque_main
+  ::= BEGIN lista_sentencias END
+      {: RESULT = null; :}
+  | BEGIN error END
+      {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right, "Bloque principal mal formado: verifica sentencias y ';' al final de cada una."); :}
+  ;
+
+/*  IF, WHILE, FOR */
+bloque
+  ::= BEGIN lista_sentencias END
+      {: RESULT = null; :}
+  ;
+
+/*  Lista de sentencias 
+   Toda sentencia DEBE terminar en ';'
+*/
+lista_sentencias
+  ::= lista_sentencias sentencia
+      {: RESULT = null; :}
+  | /* vacío */
+      {: RESULT = null; :}
+  | error SEMI
+      {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right, "Se recupero de un error en una sentencia: probablemente falto ';' o la sentencia está mal formada."); :}
+  ;
+
+/* sentencia:
+   - asignación ;
+   - llamada a función ;
+   - READ(...) ;
+   - WRITE(...) ;
+   - IF ... THEN BEGIN ... END [ELSE ...] ;
+   - WHILE ... DO BEGIN ... END ;
+   - FOR ... DO BEGIN ... END ;
+*/
+sentencia
+  ::= asignacion SEMI
+      {: RESULT = null; :}
+  | llamada_funcion_stmt SEMI
+      {: RESULT = null; :}
+  | read_stmt SEMI
+      {: RESULT = null; :}
+  | write_stmt SEMI
+      {: RESULT = null; :}
+  | if_stmt 
+      {: RESULT = null; :}
+  | while_stmt 
+      {: RESULT = null; :}
+  | for_stmt 
+      {: RESULT = null; :}
+  ;
+
+/*  Asignaciones y llamadas 
+   a := expr;
+   A := f();
+   A := prueba(a,3,x+1);
+
+   READ puede tener 0 o 1 parámetro.
+   WRITE tiene >=1 parámetros. :contentReference[oaicite:6]{index=6}
+*/
+asignacion
+  ::= ID:id ASSIGN expresion
+      {: RESULT = null; :}
+  | ID:id error expresion
+      {: addErr(idleft, idright, "Asignacion mal formada a '" + id  + "': falta ':='."); :}
+  ;
+
+/* llamada de función/procedimiento como sentencia */
+llamada_funcion_stmt
+  ::= ID LPAREN parametros_llamada_opt RPAREN
+      {: RESULT = null; :}
+  | ID:fname LPAREN error RPAREN
+      {: addErr(fnameleft, fnameright, "Llamada a '" + fname  + "': argumentos mal formados dentro de '()'."); :}
+  ;
+/* READ(...) */
+read_stmt
+  ::= READ LPAREN RPAREN
+       {: RESULT = null; :}
+  | READ LPAREN ID RPAREN
+       {: RESULT = null; :}
+  | READ LPAREN error RPAREN
+      {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)).right, "READ: se esperaba 0 o 1 identificador dentro de '()'."); :}
+  ;
+
+/* WRITE(...) */
+write_stmt
+  ::= WRITE LPAREN lista_expresiones RPAREN
+      {: RESULT = null; :}
+  | WRITE LPAREN error RPAREN
+      {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right, "WRITE: lista de expresiones mal formada dentro de '()'."); :}
+  ;
+
+/* parámetros reales en la llamada */
+parametros_llamada_opt
+  ::= lista_expresiones
+      {: RESULT = null; :}
+  | /* vacío */
+      {: RESULT = null; :}
+  ;
+
+/* lista_expresiones: expr (, expr)* */
+lista_expresiones
+  ::= lista_expresiones COMMA expresion
+      {: RESULT = null; :}
+  | expresion
+      {: RESULT = null; :}
+  ;
+
+/*  Estructuras de control 
+
+   WHILE condicion DO BEGIN ... END
+   FOR id := expr TO expr DO BEGIN ... END
+   IF condicion THEN BEGIN ... END [ELSE BEGIN ... END]
+
+   BEGIN y END siempre vienen aunque sea una sola instrucción. :contentReference[oaicite:7]{index=7}
+*/
+while_stmt
+  ::= WHILE condicion DO bloque
+      {: RESULT = null; :}
+  | WHILE error DO bloque
+      {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).right, "WHILE: condicion mal formada antes de 'DO'."); :}
+  ;
+for_stmt
+  ::= FOR ID:id ASSIGN expresion TO expresion DO bloque
+      {: RESULT = null; :}
+  | FOR ID:id error expresion TO expresion DO bloque
+      {: addErr(idleft, idright, "FOR: falta ':=' despues de '" +  id + "'."); :}
+  | FOR ID:id ASSIGN error TO expresion DO bloque
+      {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-6)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-6)).right, "FOR: expresion inicial mal formada."); :}
+  | FOR ID:id ASSIGN expresion TO error DO bloque
+      {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).right, "FOR: expresion final mal formada despues de 'TO'."); :}
+  ;
+
+
+if_stmt
+  ::= IF condicion THEN bloque
+      {: RESULT = null; :}
+  | IF condicion THEN bloque ELSE bloque
+      {: RESULT = null; :}
+    | IF error THEN bloque
+            {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).right, "IF: condicion mal formada antes de 'THEN'."); :}
+  | IF condicion THEN error
+        {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right, "IF: bloque THEN mal formado. Recuerda usar 'BEGIN ... END'."); :}
+  | IF condicion THEN bloque ELSE error
+        {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right, "IF: bloque ELSE mal formado. Recuerda usar 'BEGIN ... END'."); :}
+  ;
+
+
+/*  Expresiones y condiciones 
+
+   La condición de IF / WHILE / FOR solo debe ser booleana,
+   pero por simplicidad sintáctica dejamos que 'condicion'
+   sea una 'expresion' y confiamos en análisis semántico
+   para validar luego. :contentReference[oaicite:8]{index=8}
+*/
+condicion
+  ::= expresion
+      {: RESULT = null; :}
+  ;
+
+/* expresion:
+   - operaciones aritméticas (+, -, *, /, DIV, MOD, ++, --)
+   - relacionales (=, <>, <, <=, >, >=)
+   - booleanas (AND, OR, NOT)
+   - llamados a función dentro de expresiones
+   - literales
+   - paréntesis
+*/
+expresion
+  ::= expresion PLUS expresion
+      {: RESULT = null; :}
+  | expresion MINUS expresion
+      {: RESULT = null; :}
+  | expresion TIMES expresion
+      {: RESULT = null; :}
+  | expresion SLASH expresion
+      {: RESULT = null; :}
+  | expresion DIV expresion
+      {: RESULT = null; :}
+  | expresion MOD expresion
+      {: RESULT = null; :}
+
+  | expresion INC      /* x++ */
+      {: RESULT = null; :}
+  | expresion DEC      /* x-- */
+      {: RESULT = null; :}
+  | INC expresion      /* ++x */
+      {: RESULT = null; :}
+  | DEC expresion      /* --x */
+      {: RESULT = null; :}
+
+  | expresion EQ expresion
+      {: RESULT = null; :}
+  | expresion NEQ expresion
+      {: RESULT = null; :}
+  | expresion LT expresion
+      {: RESULT = null; :}
+  | expresion LE expresion
+      {: RESULT = null; :}
+  | expresion GT expresion
+      {: RESULT = null; :}
+  | expresion GE expresion
+      {: RESULT = null; :}
+
+  | expresion AND expresion
+      {: RESULT = null; :}
+  | expresion OR expresion
+      {: RESULT = null; :}
+  | NOT expresion
+      {: RESULT = null; :}
+
+  | factor
+      {: RESULT = null; :}
+  ;
+
+/* factor */
+factor
+  ::= ID
+      {: RESULT = null; :}
+  | INT_LIT
+      {: RESULT = null; :}
+  | REAL_LIT
+      {: RESULT = null; :}
+  | STRING_LIT
+      {: RESULT = null; :}
+  | CHAR_LIT
+      {: RESULT = null; :}
+  | ID LPAREN parametros_llamada_opt RPAREN
+      {: RESULT = null; :}
+  | LPAREN expresion RPAREN
+      {: RESULT = null; :}
+    | LPAREN error RPAREN
+        {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right, "Expresion entre paréntesis mal formada."); :}
+  ;
+
