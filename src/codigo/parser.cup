@@ -7,14 +7,26 @@ import java.util.*;
 parser code {:
     private java.util.List<String> erroresSintacticos = new java.util.ArrayList<>();
     public java.util.List<String> getErroresSintacticos() { return erroresSintacticos; }
+    private boolean suppressBeginAfterMissingSemi = false;
+    private boolean inVarGlobalsContext = false;
 
     private int ultimaLineaError = -1; // para evitar cascada
     //private int ultimaColumnaError = -1; 
 
     private String tok(Symbol s){
-        if(s == null || s.value == null) return "<EOF>";
-        return String.valueOf(s.value);
+        if (s == null) return "<EOF>";
+        // Detecta EOF por el símbolo, que es lo más confiable
+        try {
+            if (s.sym == sym.EOF) return "<EOF>";
+        } catch (Exception ignore) {}
+
+        // Si no hay valor o es vacío/espacios, trátalo como EOF
+        if (s.value == null) return "<EOF>";
+        String t = String.valueOf(s.value);
+        if (t.trim().isEmpty()) return "<EOF>";
+        return t;
     }
+
 
     /** registrar error (se puede modificar o extender los casos de errores...)*/
     private void addErr(int line, int col, String msg){
@@ -27,43 +39,59 @@ parser code {:
         System.out.println(out);
     }
     @Override
-    public void syntax_error(Symbol s) {
-        int linea = (s.left > 0) ? s.left : -1;
-        int col   = (s.right > 0) ? s.right : -1;
+    public void syntax_error(java_cup.runtime.Symbol s) {
+        // Evitar cascada: si estamos en VAR globales y el lookahead es BEGIN, no reportar
+        if (s != null && s.sym == sym.BEGIN && inVarGlobalsContext) {
+            return;
+        }
+        // Tipos en declaración VAR -> probablemente faltó ':'
+        if (s != null &&
+            (s.sym == sym.INT || s.sym == sym.REAL ||
+            s.sym == sym.STRING || s.sym == sym.CHAR)) {
+            addErr(s.left, s.right, "Declaracion de variable: se esperaba ':' antes del tipo");
+            return;
+        }
+        // Evitar cascada: no reportar BEGIN inmediatamente después del ';' faltante
+        if (s != null && s.sym == sym.BEGIN && suppressBeginAfterMissingSemi) {
+            suppressBeginAfterMissingSemi = false;
+            return;
+        }
 
-        String tokenStr = tok(s);
-        String mensaje = "";
-        
-        // Mensajes específicos para tokens comunes que causan errores
-        if (tokenStr.equals("<EOF>")) {
+        int linea = (s != null ? s.left  : -1);
+        int col   = (s != null ? s.right : -1);
+
+        String mensaje;
+        if (s == null || s.sym == sym.EOF) {
             mensaje = "Fin de archivo inesperado. ¿Falta el bloque principal BEGIN...END?";
-        } else if (tokenStr.equals(")")) {
+        } else if (s.sym == sym.RPAREN) {
             mensaje = "Paréntesis de cierre ')' inesperado. ¿Falta un parámetro o expresión?";
-        } else if (tokenStr.equals("Begin")) {
-            mensaje = "'Begin' inesperado. ¿Falta cerrar una estructura anterior?";
-        } else if (tokenStr.equals(";")) {
+        } else if (s.sym == sym.BEGIN) {
+            mensaje = "'BEGIN' inesperado. ¿Falta cerrar una estructura anterior o falta ';'?";
+        } else if (s.sym == sym.SEMI) {
             mensaje = "Punto y coma ';' inesperado. ¿Falta una sentencia o declaración?";
-        } else if (tokenStr.equals("End")) {
-            mensaje = "'End' inesperado. ¿Falta un 'Begin' correspondiente?";
-        } else if (tokenStr.equals("Else")) {
-            mensaje = "'Else' inesperado. ¿Falta un 'If Then' antes?";
-        } else if (tokenStr.equals("Then")) {
-            mensaje = "'Then' inesperado. ¿Falta la condición después del 'If'?";
-        } else if (tokenStr.equals("Do")) {
-            mensaje = "'Do' inesperado. ¿Falta la condición después del 'While' o expresión después del 'For To'?";
-        } else if (tokenStr.equals(":")) {
+        } else if (s.sym == sym.END) {
+            mensaje = "'END' inesperado. ¿Falta un 'BEGIN' correspondiente?";
+        } else if (s.sym == sym.ELSE) {
+            mensaje = "'ELSE' inesperado. ¿Falta un 'IF ... THEN' antes?";
+        } else if (s.sym == sym.THEN) {
+            mensaje = "'THEN' inesperado. ¿Falta la condición después de 'IF'?";
+        } else if (s.sym == sym.DO) {
+            mensaje = "'DO' inesperado. ¿Falta la condición después de 'WHILE' o expresión en 'FOR ... TO'?";
+        } else if (s.sym == sym.COLON) {
             mensaje = "Dos puntos ':' inesperados. ¿En declaración de variables o tipo de retorno?";
-        } else if (tokenStr.equals(",")) {
+        } else if (s.sym == sym.COMMA) {
             mensaje = "Coma ',' inesperada. ¿En lista de parámetros o declaración de variables?";
-        } else if (tokenStr.equals(":=")) {
+        } else if (s.sym == sym.ASSIGN) { // :=
             mensaje = "Asignación ':=' inesperada. ¿Falta el identificador a la izquierda?";
-        } else if (tokenStr.equals("(")) {
+        } else if (s.sym == sym.LPAREN) {
             mensaje = "Paréntesis de apertura '(' inesperado. ¿En llamada a función o expresión?";
         } else {
+            String tokenStr = tok(s);
             mensaje = "Token inesperado '" + tokenStr + "'";
         }
-        
+
         addErr(linea, col, mensaje);
+
         if (s != null) {
             switch (s.sym) {
                 case sym.SEMI:
@@ -189,6 +217,7 @@ programa
       :}
   ;
 
+
 /*  Declaraciones globales 
    VAR
        nombre, apellido : STRING;
@@ -196,13 +225,34 @@ programa
 */
 /* Lista de declaraciones globales */
 decls_globales_opt
-  ::= VAR lista_decl_var
-      {: RESULT = null; :}
+  ::= VAR {:
+            // Entramos al contexto de globales VAR
+            inVarGlobalsContext = true;
+         :}
+     lista_decl_var
+         {:
+            // Salimos del contexto VAR al terminar la lista
+            inVarGlobalsContext = false;
+            RESULT = null;
+         :}
+
   | VAR error
-      {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right, "Seccion VAR mal formada: usa 'id [, id]* : tipo ;'."); :}
+         {:
+            // También activar y desactivar en la rama de error, para no “quedarnos pegados” en VAR
+            inVarGlobalsContext = true;
+            addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left,
+                   ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right,
+                   "Seccion VAR mal formada: usa 'id [, id]* : tipo ;'.");
+            inVarGlobalsContext = false;
+            RESULT = null;
+         :}
+
   | /* vacío */
-      {: RESULT = null; :}
+         {:
+            RESULT = null;
+         :}
   ;
+
 
 lista_decl_var
   ::= lista_decl_var decl_var
@@ -219,7 +269,15 @@ decl_var
   | ID:id error
       {: addErr(idleft, idright, "Declaracion de variable: despues de '" + id + "' se esperaba ':' tipo ';' o ', id'."); :}
   | ID:id COLON tipo error
-      {: addErr(idleft, idright, "Declaracion de variable: falta ';' despues de '" + id + " : tipo'."); :}
+      {: 
+        addErr(idleft, idright, "Declaracion de variable: falta ';' despues de '" + id + " : tipo'."); 
+        suppressBeginAfterMissingSemi = true;
+      :}
+  | ID:id COMMA lista_ids COLON tipo error
+      {: 
+        addErr(idleft, idright, "Declaracion de variable: falta ';' despues de 'id[, ids] : tipo'"); 
+        suppressBeginAfterMissingSemi = true;
+      :}
   ;
 
 lista_ids
@@ -250,19 +308,16 @@ tipo
    Los PROCEDURE no tienen tipo de retorno ni asignación final
    (o sea no llevan " : TipoRetorno" ni "f := ...;")
    :contentReference[oaicite:4]{index=4}
-*/
+
+/* === Funciones/procedimientos opcionales === */
 funcs_opt
   ::= lista_func
-      {: RESULT = null; :}
-  | /* vacío */
-      {: RESULT = null; :}
+    | /* vacío */
   ;
 
 lista_func
   ::= lista_func funcion
-      {: RESULT = null; :}
-  | funcion
-      {: RESULT = null; :}
+    | funcion
   ;
 
 /* 
