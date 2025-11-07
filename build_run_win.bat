@@ -30,7 +30,8 @@ java -Dfile.encoding=UTF-8 -jar "%JFLEX%" src\codigo\Lexer.flex || exit /b 1
 
 REM ---- Generate Parser ----
 echo [STEP] Generando Parser desde src\codigo\parser.cup ...
-java -Dfile.encoding=UTF-8 -jar "%CUP%" -parser Parser -symbols sym -destdir src\codigo src\codigo\parser.cup || exit /b 1
+java -Dfile.encoding=UTF-8 -jar "%CUP%" -parser Parser -symbols sym -expect 1 -destdir src\codigo src\codigo\parser.cup || exit /b 1
+
 
 REM ---- Compile (UTF-8) ----
 echo [STEP] Compilando *.java con UTF-8 ...

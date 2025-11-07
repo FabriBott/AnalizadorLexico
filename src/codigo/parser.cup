@@ -5,10 +5,12 @@ import java.util.*;
 
 /* código del parser */
 parser code {:
+    public static final int EXPECTED_CONFLICTS = 1;
     private java.util.List<String> erroresSintacticos = new java.util.ArrayList<>();
     public java.util.List<String> getErroresSintacticos() { return erroresSintacticos; }
     private boolean suppressBeginAfterMissingSemi = false;
     private boolean inVarGlobalsContext = false;
+    
 
     private int ultimaLineaError = -1; // para evitar cascada
     //private int ultimaColumnaError = -1; 
@@ -142,6 +144,7 @@ terminal ASSIGN, SEMI, COMMA, LPAREN, RPAREN;
 terminal EQ, NEQ, LE, GE, LT, GT;
 terminal PLUS, MINUS, TIMES, SLASH, COLON;
 terminal INC, DEC;
+terminal DECLS_END;
 
 /* Identificadores y error léxico */
 terminal String ID;
@@ -186,6 +189,7 @@ precedence right NOT;
 precedence nonassoc EQ, NEQ, LT, LE, GT, GE;
 precedence left PLUS, MINUS, INC, DEC;
 precedence left TIMES, SLASH, DIV, MOD;
+precedence left DECLS_END;   /* marcador para forzar REDUCE al salir de VAR */
 
 start with programa;
 
@@ -223,22 +227,19 @@ programa
        nombre, apellido : STRING;
        contador : INT;
 */
-/* Lista de declaraciones globales */
+
+/* Globales opcionales */
 decls_globales_opt
   ::= VAR {:
-            // Entramos al contexto de globales VAR
             inVarGlobalsContext = true;
          :}
      lista_decl_var
          {:
-            // Salimos del contexto VAR al terminar la lista
             inVarGlobalsContext = false;
             RESULT = null;
          :}
-
   | VAR error
          {:
-            // También activar y desactivar en la rama de error, para no “quedarnos pegados” en VAR
             inVarGlobalsContext = true;
             addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left,
                    ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right,
@@ -246,7 +247,6 @@ decls_globales_opt
             inVarGlobalsContext = false;
             RESULT = null;
          :}
-
   | /* vacío */
          {:
             RESULT = null;
@@ -263,21 +263,15 @@ lista_decl_var
 
 decl_var
   ::= ID:id COLON tipo SEMI
-      {: RESULT = null; :}
-  | ID:id COMMA lista_ids COLON tipo SEMI
-      {: RESULT = null; :}
-  | ID:id error
-      {: addErr(idleft, idright, "Declaracion de variable: despues de '" + id + "' se esperaba ':' tipo ';' o ', id'."); :}
-  | ID:id COLON tipo error
-      {: 
-        addErr(idleft, idright, "Declaracion de variable: falta ';' despues de '" + id + " : tipo'."); 
-        suppressBeginAfterMissingSemi = true;
-      :}
-  | ID:id COMMA lista_ids COLON tipo error
-      {: 
-        addErr(idleft, idright, "Declaracion de variable: falta ';' despues de 'id[, ids] : tipo'"); 
-        suppressBeginAfterMissingSemi = true;
-      :}
+   |  ID:id COMMA lista_ids COLON tipo SEMI
+   |  ID:id COLON tipo error
+        {: addErr(idleft, idright, "Declaracion de variable: falta ';' despues de 'id : tipo'.");
+           suppressBeginAfterMissingSemi = true;
+         :}
+   |  ID:id COMMA lista_ids COLON tipo error
+        {: addErr(idleft, idright, "Declaracion de variable: falta ';' despues de 'id[, ids] : tipo'.");
+           suppressBeginAfterMissingSemi = true;
+         :}
   ;
 
 lista_ids
@@ -372,21 +366,25 @@ param_formal
 */
 
 bloque_func
-  ::= decls_locales_opt BEGIN lista_sentencias END
+  ::= BEGIN decls_locales_opt lista_sentencias END
       {: RESULT = null; :}
-  | decls_locales_opt BEGIN error END
-      {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right, "Cuerpo de funcion/procedimiento mal formado: verifica sentencias y ';'."); :}
+  | BEGIN decls_locales_opt error END
+      {:
+        addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left,
+               ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right,
+               "Cuerpo de funcion/procedimiento mal formado: verifica sentencias y ';'.");
+      :}
   ;
+
 /* la asignación de retorno solo aplica a FUNCTION
    f := expr ;
    Puede NO venir (caso de PROCEDURE)
 */
 decls_locales_opt
-  ::= VAR lista_decl_var
-      {: RESULT = null; :}
+  ::= VAR lista_decl_var %prec DECLS_END
   | /* vacío */
-      {: RESULT = null; :}
   ;
+
 
 /*  Bloques BEGIN...END 
 
@@ -396,10 +394,12 @@ decls_locales_opt
    END
 */
 bloque_main
-  ::= BEGIN lista_sentencias END
+  ::= BEGIN decls_locales_opt lista_sentencias END
       {: RESULT = null; :}
-  | BEGIN error END
-      {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right, "Bloque principal mal formado: verifica sentencias y ';' al final de cada una."); :}
+  | BEGIN decls_locales_opt error END
+      {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left,
+                ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right,
+                "Bloque principal mal formado: verifica declaraciones locales y sentencias con ';'."); :}
   ;
 
 /*  IF, WHILE, FOR */
@@ -420,31 +420,29 @@ lista_sentencias
       {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right, "Se recupero de un error en una sentencia: probablemente falto ';' o la sentencia está mal formada."); :}
   ;
 
-/* sentencia:
-   - asignación ;
-   - llamada a función ;
-   - READ(...) ;
-   - WRITE(...) ;
-   - IF ... THEN BEGIN ... END [ELSE ...] ;
-   - WHILE ... DO BEGIN ... END ;
-   - FOR ... DO BEGIN ... END ;
-*/
+/* sentencia (factorizada por prefijo ID) */
 sentencia
-  ::= asignacion SEMI
+  /* ID := expr ; */
+  ::= ID:id ASSIGN expresion SEMI
       {: RESULT = null; :}
-  | llamada_funcion_stmt SEMI
+
+  /* ID(...) ;  (llamada a función/procedimiento) */
+  | ID LPAREN parametros_llamada_opt RPAREN SEMI
       {: RESULT = null; :}
+
+  /* Otras sentencias que no empiezan por ID */
   | read_stmt SEMI
       {: RESULT = null; :}
   | write_stmt SEMI
       {: RESULT = null; :}
-  | if_stmt 
+  | if_stmt
       {: RESULT = null; :}
-  | while_stmt 
+  | while_stmt
       {: RESULT = null; :}
-  | for_stmt 
+  | for_stmt
       {: RESULT = null; :}
   ;
+
 
 /*  Asignaciones y llamadas 
    a := expr;

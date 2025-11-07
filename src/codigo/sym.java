@@ -34,7 +34,7 @@ public class sym {
   public static final int ARRAY = 4;
   public static final int OBJECT = 31;
   public static final int SHL = 41;
-  public static final int ERROR = 83;
+  public static final int ERROR = 84;
   public static final int DEC = 81;
   public static final int VAR = 49;
   public static final int INLINE = 24;
@@ -62,6 +62,7 @@ public class sym {
   public static final int PROCEDURE = 36;
   public static final int INT = 55;
   public static final int EOF = 0;
+  public static final int DECLS_END = 82;
   public static final int REAL_LIT = 62;
   public static final int FUNCTION = 19;
   public static final int INC = 80;
@@ -74,7 +75,7 @@ public class sym {
   public static final int SET = 40;
   public static final int error = 1;
   public static final int IF = 21;
-  public static final int ID = 82;
+  public static final int ID = 83;
   public static final int OF = 32;
   public static final int END = 14;
   public static final int COLON = 79;
@@ -175,6 +176,7 @@ public class sym {
   "COLON",
   "INC",
   "DEC",
+  "DECLS_END",
   "ID",
   "ERROR"
   };

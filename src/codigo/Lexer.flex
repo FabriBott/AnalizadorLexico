@@ -5,6 +5,7 @@ import java_cup.runtime.*;
 %%
 %class Lexer
 %unicode 
+%public
 %cup    
 %line
 %column
@@ -78,15 +79,13 @@ StarComment     = "(*" ([^*]|\*+[^)])* "*)"
 {StarComment}  { /* Ignorar */ }
 {WhiteSpace}   { /* Ignorar */ }
 
-/* id seguido de ':=' -> asignación; NO es una declaración */
-{Identifier}([ \t\f\r\n])*:= {
-    String t   = yytext();
-    String lex = t.substring(0, t.length()-2).trim(); // quita ':='
-    yypushback(2);
+{Identifier} {
+    String lex = yytext();
+    System.out.println("LEX  ID  '" + lex + "'  en " + (yyline+1) + ":" + (yycolumn+1));
     return keywordOr(lex, sym.ID);
 }
 
-{Identifier} {
+/*{Identifier} {
     String lex = yytext();
     String up = lex.toUpperCase();
     switch (up) {
@@ -117,27 +116,30 @@ StarComment     = "(*" ([^*]|\*+[^)])* "*)"
         case "MOD": return symbol(sym.MOD);
         default: return symbol(sym.ID, lex);
     }
-}
+}*/
 
-/* Operadores y signos de puntuación */
-":="          { return symbol(sym.ASSIGN); }
-";"           { return symbol(sym.SEMI); }
-","           { return symbol(sym.COMMA); }
-"("           { return symbol(sym.LPAREN); }
-")"           { return symbol(sym.RPAREN); }
-"="           { return symbol(sym.EQ); }
-"<>"          { return symbol(sym.NEQ); }
-"<"           { return symbol(sym.LT); }
+/* Operadores y signos de puntuación (largos antes que cortos) */
+":="          { System.out.println("LEX  ASSIGN  ':='  en " + (yyline+1) + ":" + (yycolumn+1)); return symbol(sym.ASSIGN); }
+
 "<="          { return symbol(sym.LE); }
-">"           { return symbol(sym.GT); }
 ">="          { return symbol(sym.GE); }
+"<>"          { return symbol(sym.NEQ); }
+
+"++"          { return symbol(sym.INC); }
+"--"          { return symbol(sym.DEC); }
+
+"="           { return symbol(sym.EQ); }
+"<"           { return symbol(sym.LT); }
+">"           { return symbol(sym.GT); }
 "+"           { return symbol(sym.PLUS); }
 "-"           { return symbol(sym.MINUS); }
 "*"           { return symbol(sym.TIMES); }
 "/"           { return symbol(sym.SLASH); }
+";"           { return symbol(sym.SEMI); }
+","           { return symbol(sym.COMMA); }
+"("           { return symbol(sym.LPAREN); }
+")"           { return symbol(sym.RPAREN); }
 ":"           { return symbol(sym.COLON); }
-"++"          { return symbol(sym.INC); }
-"--"          { return symbol(sym.DEC); }
 
 /* Literales */
 {RealLiteral}    { return symbol(sym.REAL_LIT, yytext()); }
