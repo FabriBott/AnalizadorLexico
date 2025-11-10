@@ -32,7 +32,7 @@ parser code {:
 
     /** registrar error (se puede modificar o extender los casos de errores...)*/
     private void addErr(int line, int col, String msg){
-        // Silencia todos los errores adicionales en la misma línea
+        // Silencia todos los errores adicionales en la misma línea    //
         if (line == ultimaLineaError) return;
         ultimaLineaError = line;
 
@@ -318,18 +318,75 @@ lista_func
    - FUNCTION con tipo de retorno
    - PROCEDURE sin tipo de retorno
 */
+/* ==== Encabezados de FUNCTION / PROCEDURE con recuperación robusta ==== */
 funcion
+ /* FUNCTION correcto con tipo de retorno */
  ::= FUNCTION ID LPAREN params_formales_opt RPAREN COLON tipo bloque_func
       {: RESULT = null; :}
-  | FUNCTION ID:fname LPAREN error RPAREN COLON tipo bloque_func
-      {: addErr(fnameleft, fnameright, 
-                "FUNCIÓN '" + fname + "': Parámetros formales mal definidos. Formato esperado: 'tipo id, tipo id, ...'"); :} 
-  | PROCEDURE ID LPAREN params_formales_opt RPAREN bloque_func
+
+ /* Error en parámetros pero sí hay ')' y luego ': tipo' */
+ | FUNCTION ID:fname LPAREN error RPAREN COLON tipo bloque_func
+      {:
+        addErr(fnameleft, fnameright,
+          "FUNCIÓN '" + fname + "': parámetros mal definidos. Se sincroniza en ')'.");
+        RESULT = null;
+      :}
+
+ /* Falta ')' antes de ':' del tipo (p.ej., FUNCTION f(INT x : INT ...) */
+ | FUNCTION ID:fname LPAREN error COLON tipo bloque_func
+      {:
+        addErr(fnameleft, fnameright,
+          "FUNCIÓN '" + fname + "': falta ')' antes de ':' del tipo de retorno. Se asume ')'.");
+        RESULT = null;
+      :}
+
+ /* Falta ')' y falta ': tipo'; salta directo al bloque (BEGIN) */
+ | FUNCTION ID:fname LPAREN error bloque_func
+      {:
+        addErr(fnameleft, fnameright,
+          "FUNCIÓN '" + fname + "': falta ')' y ': tipo' antes del bloque. Se sincroniza en 'BEGIN'.");
+        RESULT = null;
+      :}
+
+ /* === NUEVAS: se cerró con ')', pero NO hay ': tipo' y viene BEGIN === */
+
+ /* (NUEVA) Parámetros OK, ')' y luego BEGIN (falta ': tipo') */
+ | FUNCTION ID:fname LPAREN params_formales_opt RPAREN bloque_func
+      {:
+        addErr(fnameleft, fnameright,
+          "FUNCIÓN '" + fname + "': falta ': tipo' antes del bloque. Se sincroniza en 'BEGIN'.");
+        RESULT = null;
+      :}
+
+ /* (NUEVA) Parámetros con error, ')', y luego BEGIN (falta ': tipo') */
+ | FUNCTION ID:fname LPAREN error RPAREN bloque_func
+      {:
+        addErr(fnameleft, fnameright,
+          "FUNCIÓN '" + fname + "': parámetros mal definidos y falta ': tipo' antes del bloque. Se sincroniza en 'BEGIN'.");
+        RESULT = null;
+      :}
+
+ /* PROCEDURE correcto (sin tipo de retorno) */
+ | PROCEDURE ID LPAREN params_formales_opt RPAREN bloque_func
       {: RESULT = null; :}
-  | PROCEDURE ID:pfname LPAREN error RPAREN bloque_func
-      {: addErr(pfnameleft, pfnameright, 
-                "Parámetros mal formados en PROCEDURE '" + pfname + "'. Formato: 'tipo id' o vacío"); :}
-  ;
+
+ /* Error en parámetros de PROCEDURE pero sí hay ')' */
+ | PROCEDURE ID:pfname LPAREN error RPAREN bloque_func
+      {:
+        addErr(pfnameleft, pfnameright,
+          "PROCEDURE '" + pfname + "': parámetros mal formados. Se sincroniza en ')'.");
+        RESULT = null;
+      :}
+
+ /* Falta ')' en PROCEDURE y salta directo al bloque */
+ | PROCEDURE ID:pfname LPAREN error bloque_func
+      {:
+        addErr(pfnameleft, pfnameright,
+          "PROCEDURE '" + pfname + "': falta ')' antes del bloque. Se sincroniza en 'BEGIN'.");
+        RESULT = null;
+      :}
+ ;
+
 /* Parámetros formales:
    la especificación indica que "(tipo x, tipo y, …)".
    Eso es [tipo ID] separados por comas. Ej: INT x, REAL y
@@ -406,6 +463,24 @@ bloque_main
 bloque
   ::= BEGIN lista_sentencias END
       {: RESULT = null; :}
+
+  /* Contenido con errores pero el bloque se cierra correctamente */
+  | BEGIN error END
+      {:
+        addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left,
+               ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right,
+               "Bloque mal formado. Revisa sentencias internas y ';'. Se sincroniza en 'END'.");
+        RESULT = null;
+      :}
+
+  /* Falta 'END': no usamos EOF en la gramática; dejamos que CUP recupere */
+  | BEGIN lista_sentencias error
+      {:
+        int l = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
+        int c = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
+        addErr(l, c, "Bloque sin cerrar: falta 'END' para el 'BEGIN' correspondiente.");
+        RESULT = null;
+      :}
   ;
 
 /*  Lista de sentencias 
@@ -426,15 +501,53 @@ sentencia
   ::= ID:id ASSIGN expresion SEMI
       {: RESULT = null; :}
 
+  /* RECUPERACIÓN: falta ')' antes de ';' en una asignación (p.ej., x := (1 + 2;) */
+  | ID:id ASSIGN LPAREN error SEMI
+      {:
+        addErr(idleft, idright,
+          "Asignación a '" + id + "': falta ')' antes de ';'. Se sincroniza en ';'.");
+        RESULT = null;
+      :}
+
+  /* RECUPERACIÓN: expresión de la derecha mal formada; sincroniza en ';' */
+  | ID:id ASSIGN error SEMI
+      {:
+        addErr(idleft, idright,
+          "Asignación a '" + id + "': expresión mal formada. Se sincroniza en ';'.");
+        RESULT = null;
+      :}
+
   /* ID(...) ;  (llamada a función/procedimiento) */
   | ID LPAREN parametros_llamada_opt RPAREN SEMI
       {: RESULT = null; :}
 
-  /* Otras sentencias que no empiezan por ID */
-  | read_stmt SEMI
-      {: RESULT = null; :}
+  /* --- WRITE(...) ; --- */
+  /* Normal: write_stmt ; */
   | write_stmt SEMI
       {: RESULT = null; :}
+
+  /* RECUPERACIÓN: WRITE("Test";  -> falta ')' antes de ';' */
+  | WRITE:w LPAREN error SEMI
+      {:
+        addErr(wleft, wright,
+          "WRITE: falta ')' antes de ';'. Se sincroniza en ';'.");
+        RESULT = null;
+      :}
+
+  /* --- READ(...) ; --- */
+  /* Normal: read_stmt ; */
+  | read_stmt SEMI
+      {: RESULT = null; :}
+
+  /* RECUPERACIÓN: READ(a;  -> falta ')' antes de ';' */
+  | READ:r LPAREN error SEMI
+      {:
+        addErr(rleft, rright,
+          "READ: falta ')' antes de ';'. Se sincroniza en ';'.");
+        RESULT = null;
+      :}
+
+  /* Otras sentencias que no empiezan por ID */
   | if_stmt
       {: RESULT = null; :}
   | while_stmt
@@ -442,7 +555,6 @@ sentencia
   | for_stmt
       {: RESULT = null; :}
   ;
-
 
 /*  Asignaciones y llamadas 
    a := expr;
@@ -506,39 +618,91 @@ lista_expresiones
    FOR id := expr TO expr DO BEGIN ... END
    IF condicion THEN BEGIN ... END [ELSE BEGIN ... END]
 
-   BEGIN y END siempre vienen aunque sea una sola instrucción. :contentReference[oaicite:7]{index=7}
+   BEGIN y END siempre vienen aunque sea una sola instrucción.
 */
+
+/* ===================== WHILE ===================== */
 while_stmt
   ::= WHILE condicion DO bloque
       {: RESULT = null; :}
   | WHILE error DO bloque
-      {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).right, "WHILE: condicion mal formada antes de 'DO'."); :}
+      {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).left,
+                ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).right,
+                "WHILE: condición mal formada antes de 'DO'."); :}
+  /* FALTA BEGIN...END después de DO */
+  | WHILE condicion DO error SEMI
+      {:
+        addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left,
+               ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right,
+               "WHILE: falta bloque 'BEGIN ... END' después de 'DO'. Se encontró una sentencia suelta.");
+        RESULT = null;
+      :}
+  | WHILE condicion DO error END
+      {:
+        addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left,
+               ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right,
+               "WHILE: falta bloque 'BEGIN ... END' después de 'DO'. Se sincroniza en 'END'.");
+        RESULT = null;
+      :}
   ;
+
+/* ===================== FOR ===================== */
 for_stmt
   ::= FOR ID:id ASSIGN expresion TO expresion DO bloque
       {: RESULT = null; :}
-  | FOR ID:id error expresion TO expresion DO bloque
-      {: addErr(idleft, idright, "FOR: falta ':=' despues de '" +  id + "'."); :}
-  | FOR ID:id ASSIGN error TO expresion DO bloque
-      {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-6)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-6)).right, "FOR: expresion inicial mal formada."); :}
-  | FOR ID:id ASSIGN expresion TO error DO bloque
-      {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).right, "FOR: expresion final mal formada despues de 'TO'."); :}
+  | FOR ID:id ASSIGN expresion TO expresion DO error SEMI
+      {:
+        addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left,
+               ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right,
+               "FOR: falta bloque 'BEGIN ... END' después de 'DO'. Se encontró una sentencia suelta.");
+        RESULT = null;
+      :}
+  | FOR ID:id ASSIGN expresion TO expresion DO error END
+      {:
+        addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left,
+               ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right,
+               "FOR: falta bloque 'BEGIN ... END' después de 'DO'. Se sincroniza en 'END'.");
+        RESULT = null;
+      :}
   ;
 
-
+/* ===================== IF / ELSE ===================== */
 if_stmt
   ::= IF condicion THEN bloque
       {: RESULT = null; :}
   | IF condicion THEN bloque ELSE bloque
       {: RESULT = null; :}
-    | IF error THEN bloque
-            {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).right, "IF: condicion mal formada antes de 'THEN'."); :}
-  | IF condicion THEN error
-        {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right, "IF: bloque THEN mal formado. Recuerda usar 'BEGIN ... END'."); :}
-  | IF condicion THEN bloque ELSE error
-        {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right, "IF: bloque ELSE mal formado. Recuerda usar 'BEGIN ... END'."); :}
+  /* FALTA BEGIN...END tras THEN */
+  | IF condicion THEN error SEMI
+      {:
+        addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left,
+               ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right,
+               "IF: falta bloque 'BEGIN ... END' después de 'THEN'. Se encontró una sentencia suelta.");
+        RESULT = null;
+      :}
+  | IF condicion THEN error END
+      {:
+        addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left,
+               ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right,
+               "IF: falta bloque 'BEGIN ... END' después de 'THEN'. Se sincroniza en 'END'.");
+        RESULT = null;
+      :}
+  /* FALTA BEGIN...END tras ELSE */
+  | IF condicion THEN bloque ELSE error SEMI
+      {:
+        addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left,
+               ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right,
+               "IF: falta bloque 'BEGIN ... END' después de 'ELSE'. Se encontró una sentencia suelta.");
+        RESULT = null;
+      :}
+  | IF condicion THEN bloque ELSE error END
+      {:
+        addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left,
+               ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right,
+               "IF: falta bloque 'BEGIN ... END' después de 'ELSE'. Se sincroniza en 'END'.");
+        RESULT = null;
+      :}
   ;
-
 
 /*  Expresiones y condiciones 
 

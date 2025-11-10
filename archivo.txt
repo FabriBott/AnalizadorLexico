@@ -1,6 +1,19 @@
-PROGRAM P
-BEGIN
-  ELSE
-  BEGIN
-  END
-END
+PROGRAM P 
+
+PROCEDURE show (STRING m 
+
+BEGIN 
+
+  VAR t : STRING; 
+
+  t := m; 
+
+  WRITE(t); 
+
+END 
+
+BEGIN 
+
+  show("hola"); 
+
+END 
