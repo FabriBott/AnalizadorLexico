@@ -1,19 +1,15 @@
 PROGRAM P 
 
-PROCEDURE show (STRING m 
+FUNCTION f (INT x : INT 
 
 BEGIN 
 
-  VAR t : STRING; 
-
-  t := m; 
-
-  WRITE(t); 
+  f := x + 1; 
 
 END 
 
 BEGIN 
 
-  show("hola"); 
+  WRITE(f(2)); 
 
 END 

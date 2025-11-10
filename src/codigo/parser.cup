@@ -340,6 +340,13 @@ funcion
         RESULT = null;
       :}
 
+  | FUNCTION ID:fname LPAREN params_formales_opt COLON tipo bloque_func
+     {:
+       addErr(fnameleft, fnameright,
+         "FUNCIÓN '" + fname + "': falta ')' después de la lista de parámetros y antes de ': tipo'. Se asume ')'.");
+       RESULT = null;
+     :}
+
  /* Falta ')' y falta ': tipo'; salta directo al bloque (BEGIN) */
  | FUNCTION ID:fname LPAREN error bloque_func
       {:
@@ -385,6 +392,14 @@ funcion
           "PROCEDURE '" + pfname + "': falta ')' antes del bloque. Se sincroniza en 'BEGIN'.");
         RESULT = null;
       :}
+
+  /* Recuperación: Parámetros OK, falta ')' antes de BEGIN */
+ | PROCEDURE ID:pfname LPAREN params_formales_opt bloque_func
+     {:
+       addErr(pfnameleft, pfnameright,
+         "PROCEDURE '" + pfname + "': falta ')' después de la lista de parámetros y antes de BEGIN.");
+       RESULT = null;
+     :}
  ;
 
 /* Parámetros formales:
