@@ -10,7 +10,13 @@ parser code {:
     public java.util.List<String> getErroresSintacticos() { return erroresSintacticos; }
     private boolean suppressBeginAfterMissingSemi = false;
     private boolean inVarGlobalsContext = false;
-    
+
+    private PilaSemantica pila = new PilaSemantica();
+    private TablaSimbolos tabla = new TablaSimbolos();
+    private Codigo codigo = new Codigo();
+
+    private java.util.List<String> erroresSemanticos = new java.util.ArrayList<>();
+    public java.util.List<String> getErroresSemanticos() { return erroresSemanticos; }
 
     private int ultimaLineaError = -1; // para evitar cascada
     //private int ultimaColumnaError = -1; 
@@ -38,6 +44,12 @@ parser code {:
 
         String out = String.format("[Línea %d, Col %d] ERROR SINTACTICO: %s", line, col, msg);
         erroresSintacticos.add(out);
+        System.out.println(out);
+    }
+
+    public void addErrSemantico(int line, int col, String msg) {
+        String out = String.format("[Línea %d, Col %d] ERROR SEMANTICO: %s", line, col, msg);
+        erroresSemanticos.add(out);
         System.out.println(out);
     }
     @Override
@@ -156,8 +168,8 @@ non terminal Object programa;
 non terminal Object decls_globales_opt;
 non terminal Object lista_decl_var;
 non terminal Object decl_var;
-non terminal Object lista_ids;
-non terminal Object tipo;
+non terminal java.util.List<String> lista_ids;
+non terminal String tipo;
 non terminal Object funcs_opt;
 non terminal Object lista_func;
 non terminal Object funcion;
@@ -206,7 +218,16 @@ start with programa;
 */
 programa
   ::= PROGRAM ID decls_globales_opt funcs_opt bloque_main
-      {: RESULT = null; :}
+      {: RESULT = null;
+          System.out.println("\n");
+          if (erroresSemanticos.isEmpty()) {
+              System.out.println("No se encontraron errores semánticos.");
+          } else {
+              System.out.println("ERRORES SEMÁNTICOS ENCONTRADOS: " + erroresSemanticos.size());
+              // Los errores ya fueron impresos en addErrSemantico, este es el resumen
+          }
+          System.out.println(""); 
+      :}
   | PROGRAM ID decls_globales_opt funcs_opt error
       {: 
         addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left, 
@@ -262,27 +283,45 @@ lista_decl_var
   ;
 
 decl_var
-  ::= ID:id COLON tipo SEMI
-   |  ID:id COMMA lista_ids COLON tipo SEMI
-   |  ID:id COLON tipo error
-        {: addErr(idleft, idright, "Declaracion de variable: falta ';' despues de 'id : tipo'.");
-           suppressBeginAfterMissingSemi = true;
-         :}
-   |  ID:id COMMA lista_ids COLON tipo error
-        {: addErr(idleft, idright, "Declaracion de variable: falta ';' despues de 'id[, ids] : tipo'.");
-           suppressBeginAfterMissingSemi = true;
-         :}
+  ::= ID:id COLON tipo:t SEMI
+     {: 
+         String nombre = id;
+         String tipoVar = t;
+
+         if (!tabla.insertar(nombre, tipoVar)) {
+             addErrSemantico(idleft, idright, "Variable '" + nombre + "' ya definida."); // AQUI SE USA EL NUEVO MÉTODO
+         }
+     :}
+  | ID:id COMMA lista_ids:rest COLON tipo:t SEMI
+     {:
+         String tipoVar = t;
+         String nombre = id;
+         if (!tabla.insertar(nombre, tipoVar)) {
+             addErrSemantico(idleft, idright, "Variable '" + nombre + "' ya definida."); // AQUI SE USA EL NUEVO MÉTODO
+         }
+         for (String nom : rest) {
+             if (!tabla.insertar(nom, tipoVar)) {
+                 addErrSemantico(idleft, idright, "Variable '" + nom + "' ya definida."); // AQUI SE USA EL NUEVO MÉTODO
+             }
+         }
+     :}
   ;
 
-lista_ids
-  ::= ID
-      {: RESULT = null; :}
-  | lista_ids COMMA ID
-      {: RESULT = null; :}
+lista_ids ::= ID:id
+     {: 
+        java.util.List<String> l = new java.util.ArrayList<>();
+        l.add(id);
+        RESULT = l;
+     :}
+   | lista_ids:lst COMMA ID:id
+     {:
+        lst.add(id);
+        RESULT = lst;
+     :}
   ;
 
 /* tipos válidos:
-   int, char, string, real  :contentReference[oaicite:3]{index=3}
+   int, char, string, real
 */
 tipo
   ::= INT    {: RESULT = "INT";    :}

@@ -1,15 +1,1 @@
-PROGRAM P 
-
-FUNCTION f (INT x : INT 
-
-BEGIN 
-
-  f := x + 1; 
-
-END 
-
-BEGIN 
-
-  WRITE(f(2)); 
-
-END 
+a ;":"L
