@@ -8,6 +8,8 @@ public class Registro {
     public String valor; // para constantes (Constant Folding)
     public String lugar; // nombre del temporal generado (t1, t2...)
     public String codigo; // código intermedio generado por este nodo
+    public boolean esLista = false;
+    public ArrayList<Registro> elementos; // Para lista de expresiones
 
     // **NUEVO:** Almacena los tipos de los parámetros formales de una
     // función/procedimiento

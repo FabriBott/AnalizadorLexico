@@ -190,9 +190,9 @@ non terminal Object while_stmt;
 non terminal Object for_stmt;
 non terminal Object parametros_llamada_opt;
 non terminal Object lista_expresiones;
-non terminal Object expresion;
-non terminal Object condicion;
-non terminal Object factor;
+non terminal Registro expresion;      /* CAMBIAR de Object a Registro */
+non terminal Registro condicion;      /* CAMBIAR de Object a Registro */
+non terminal Registro factor;         /* CAMBIAR de Object a Registro */
 non terminal Object decls_locales_opt;
 
 /* PRECEDENCIAS  */
@@ -219,6 +219,24 @@ start with programa;
 programa
   ::= PROGRAM ID decls_globales_opt funcs_opt bloque_main
       {: RESULT = null;
+
+          // print de la tabla de simbolos
+          System.out.println("\n=== TABLA DE SIMBOLOS ===");
+          try {
+              // Acceder directamente a la tabla interna con reflexión
+              java.lang.reflect.Field campo = tabla.getClass().getDeclaredField("tabla");
+              campo.setAccessible(true);
+              java.util.HashMap<String, String> mapa = (java.util.HashMap<String, String>) campo.get(tabla);
+              
+              // Imprimir cada entrada: id -> tipo
+              for (java.util.Map.Entry<String, String> entrada : mapa.entrySet()) {
+                  System.out.println(entrada.getKey() + " -> " + entrada.getValue());
+              }
+          } catch (Exception e) {
+              System.out.println("Error: " + e.getMessage());
+          }
+          System.out.println("=== FIN TABLA ===\n");
+
           System.out.println("\n");
           if (erroresSemanticos.isEmpty()) {
               System.out.println("No se encontraron errores semánticos.");
@@ -723,7 +741,13 @@ for_stmt
 /* ===================== IF / ELSE ===================== */
 if_stmt
   ::= IF condicion THEN bloque
-      {: RESULT = null; :}
+      {: 
+        //if (cond.tipo != null && !cond.tipo.equals("BOOLEAN")) {
+        //    addErrSemantico(condleft, condright, 
+        //        "Condición del IF debe ser booleana, se encontro: " + cond.tipo);
+        //}
+        RESULT = null; 
+      :}
   | IF condicion THEN bloque ELSE bloque
       {: RESULT = null; :}
   /* FALTA BEGIN...END tras THEN */
@@ -766,8 +790,19 @@ if_stmt
    para validar luego. :contentReference[oaicite:8]{index=8}
 */
 condicion
-  ::= expresion
-      {: RESULT = null; :}
+  ::= expresion:exp
+      {: 
+        // Obtener posición de la expresión
+        int line = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
+        int col = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
+        
+        // Verifica que la expresión sea booleana
+        if (exp != null && exp.tipo != null && !exp.tipo.equals("BOOLEAN")) {
+            addErrSemantico(line, col, 
+                "Condición debe ser booleana, se encontró: " + exp.tipo);
+        }
+        RESULT = exp;
+      :}
   ;
 
 /* expresion:
