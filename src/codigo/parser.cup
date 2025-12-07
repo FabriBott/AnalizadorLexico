@@ -6,6 +6,8 @@ import java.util.*;
 /* código del parser */
 parser code {:
     public static final int EXPECTED_CONFLICTS = 1;
+    private String ambitoActual = "global";
+    private List<String> tiposParametrosActuales = new ArrayList<>();
     private java.util.List<String> erroresSintacticos = new java.util.ArrayList<>();
     public java.util.List<String> getErroresSintacticos() { return erroresSintacticos; }
     private boolean suppressBeginAfterMissingSemi = false;
@@ -189,7 +191,7 @@ non terminal Object if_stmt;
 non terminal Object while_stmt;
 non terminal Object for_stmt;
 non terminal Object parametros_llamada_opt;
-non terminal Object lista_expresiones;
+non terminal java.util.List<String> lista_expresiones;
 non terminal Object expresion;
 non terminal Object condicion;
 non terminal Object factor;
@@ -222,6 +224,8 @@ programa
           System.out.println("\n");
           if (erroresSemanticos.isEmpty()) {
               System.out.println("No se encontraron errores semánticos.");
+              tabla.imprimir();                    
+              codigo.generarArchivo("salida.asm"); 
           } else {
               System.out.println("ERRORES SEMÁNTICOS ENCONTRADOS: " + erroresSemanticos.size());
               // Los errores ya fueron impresos en addErrSemantico, este es el resumen
@@ -288,20 +292,24 @@ decl_var
          String nombre = id;
          String tipoVar = t;
 
-         if (!tabla.insertar(nombre, tipoVar)) {
-             addErrSemantico(idleft, idright, "Variable '" + nombre + "' ya definida."); // AQUI SE USA EL NUEVO MÉTODO
+         if (!tabla.insertar(nombre, tipoVar, ambitoActual)) {
+             addErrSemantico(idleft, idright,
+                 "Variable '" + nombre + "' ya definida en el ámbito " + ambitoActual + ".");
          }
      :}
   | ID:id COMMA lista_ids:rest COLON tipo:t SEMI
      {:
          String tipoVar = t;
-         String nombre = id;
-         if (!tabla.insertar(nombre, tipoVar)) {
-             addErrSemantico(idleft, idright, "Variable '" + nombre + "' ya definida."); // AQUI SE USA EL NUEVO MÉTODO
+
+         if (!tabla.insertar(id, tipoVar, ambitoActual)) {
+             addErrSemantico(idleft, idright,
+                 "Variable '" + id + "' ya definida en el ámbito " + ambitoActual + ".");
          }
+
          for (String nom : rest) {
-             if (!tabla.insertar(nom, tipoVar)) {
-                 addErrSemantico(idleft, idright, "Variable '" + nom + "' ya definida."); // AQUI SE USA EL NUEVO MÉTODO
+             if (!tabla.insertar(nom, tipoVar, ambitoActual)) {
+                 addErrSemantico(idleft, idright,
+                     "Variable '" + nom + "' ya definida en el ámbito " + ambitoActual + ".");
              }
          }
      :}
@@ -360,8 +368,21 @@ lista_func
 /* ==== Encabezados de FUNCTION / PROCEDURE con recuperación robusta ==== */
 funcion
  /* FUNCTION correcto con tipo de retorno */
- ::= FUNCTION ID LPAREN params_formales_opt RPAREN COLON tipo bloque_func
-      {: RESULT = null; :}
+ ::= FUNCTION ID:fname LPAREN params_formales_opt RPAREN COLON tipo:ret bloque_func
+      {:
+         // ✅ REGISTRAR FUNCIÓN EN TABLA
+         if (!tabla.insertarFuncion(fname, ret, tiposParametrosActuales)) {
+             addErrSemantico(fnameleft, fnameright,
+                 "Función '" + fname + "' ya fue declarada.");
+         }
+
+         // limpiar para la siguiente función
+         tiposParametrosActuales = new ArrayList<>();
+         ambitoActual = "global";
+
+         RESULT = null;
+      :}
+
 
  /* Error en parámetros pero sí hay ')' y luego ': tipo' */
  | FUNCTION ID:fname LPAREN error RPAREN COLON tipo bloque_func
@@ -461,13 +482,21 @@ lista_params_formales
 
 /* Parámetros formales mejorados */
 param_formal
-  ::= tipo ID:id
-      {: RESULT = null; :}
+  ::= tipo:t ID:id
+      {:
+         // ✅ GUARDAR TIPO DE PARÁMETRO
+         tiposParametrosActuales.add(t);
+         ambitoActual = "local";
+         RESULT = null;
+      :}
   | tipo error
-      {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left, 
+      {:
+         addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left, 
                 ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right, 
-                "Falta el identificador después del tipo en parámetro formal"); :}
+                "Falta el identificador después del tipo en parámetro formal");
+      :}
   ;
+
 /* bloque_func:
    BEGIN
       [declaraciones locales VAR ... ;]
@@ -478,21 +507,28 @@ param_formal
 
 bloque_func
   ::= BEGIN decls_locales_opt lista_sentencias END
-      {: RESULT = null; :}
+      {:
+         tabla.limpiarLocales();
+         ambitoActual = "global";   // VOLVER AL ÁMBITO GLOBAL
+         RESULT = null;
+      :}
   | BEGIN decls_locales_opt error END
       {:
+        tabla.limpiarLocales();
+        ambitoActual = "global";   // VOLVER AL ÁMBITO GLOBAL
         addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left,
                ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right,
                "Cuerpo de funcion/procedimiento mal formado: verifica sentencias y ';'.");
       :}
   ;
 
+
 /* la asignación de retorno solo aplica a FUNCTION
    f := expr ;
    Puede NO venir (caso de PROCEDURE)
 */
 decls_locales_opt
-  ::= VAR lista_decl_var %prec DECLS_END
+  ::= VAR {: ambitoActual = "local"; :} lista_decl_var %prec DECLS_END
   | /* vacío */
   ;
 
@@ -552,8 +588,17 @@ lista_sentencias
 /* sentencia (factorizada por prefijo ID) */
 sentencia
   /* ID := expr ; */
-  ::= ID:id ASSIGN expresion SEMI
-      {: RESULT = null; :}
+  ::= ID:id ASSIGN expresion:val SEMI
+      {:
+         if (!tabla.existe(id)) {
+             addErrSemantico(idleft, idright,
+                 "Variable '" + id + "' no ha sido declarada.");
+         } else if (erroresSemanticos.isEmpty()) {
+             codigo.genAsignacion(id, val);
+         }
+         RESULT = null;
+      :}
+
 
   /* RECUPERACIÓN: falta ')' antes de ';' en una asignación (p.ej., x := (1 + 2;) */
   | ID:id ASSIGN LPAREN error SEMI
@@ -572,8 +617,9 @@ sentencia
       :}
 
   /* ID(...) ;  (llamada a función/procedimiento) */
-  | ID LPAREN parametros_llamada_opt RPAREN SEMI
+  | llamada_funcion_stmt SEMI
       {: RESULT = null; :}
+
 
   /* --- WRITE(...) ; --- */
   /* Normal: write_stmt ; */
@@ -627,11 +673,41 @@ asignacion
 
 /* llamada de función/procedimiento como sentencia */
 llamada_funcion_stmt
-  ::= ID LPAREN parametros_llamada_opt RPAREN
-      {: RESULT = null; :}
+  ::= ID:fname LPAREN parametros_llamada_opt:params RPAREN
+      {:
+         // 1. Validar que la función exista
+         if (!tabla.existeFuncion(fname)) {
+             addErrSemantico(fnameleft, fnameright,
+                 "Función '" + fname + "' no ha sido declarada.");
+         } else {
+             // 2. Validar cantidad de parámetros
+             int cantidadReal = ((List)params).size();
+             if (!tabla.validarCantidadParametros(fname, cantidadReal)) {
+                 addErrSemantico(fnameleft, fnameright,
+                     "Cantidad incorrecta de parámetros en la llamada a '" + fname + "'.");
+             } else {
+                 // 3. Validar tipos de parámetros
+                 if (params != null) {
+                     if (!tabla.validarTiposParametros(fname, (List<String>)params)) {
+                         addErrSemantico(fnameleft, fnameright,
+                             "Tipos incorrectos de parámetros en la llamada a '" + fname + "'.");
+                     }
+                 }
+             }
+         }
+
+         // 4. Uso de pila semántica
+         pila.push(fname + "()");
+         RESULT = null;
+      :}
+
   | ID:fname LPAREN error RPAREN
-      {: addErr(fnameleft, fnameright, "Llamada a '" + fname  + "': argumentos mal formados dentro de '()'."); :}
+      {:
+         addErr(fnameleft, fnameright,
+           "Llamada a '" + fname  + "': argumentos mal formados dentro de '()'.");
+      :}
   ;
+
 /* READ(...) */
 read_stmt
   ::= READ LPAREN RPAREN
@@ -652,18 +728,25 @@ write_stmt
 
 /* parámetros reales en la llamada */
 parametros_llamada_opt
-  ::= lista_expresiones
-      {: RESULT = null; :}
+  ::= lista_expresiones:l
+      {: RESULT = l; :}
   | /* vacío */
-      {: RESULT = null; :}
+      {: RESULT = new java.util.ArrayList<String>(); :}
   ;
 
 /* lista_expresiones: expr (, expr)* */
 lista_expresiones
-  ::= lista_expresiones COMMA expresion
-      {: RESULT = null; :}
-  | expresion
-      {: RESULT = null; :}
+  ::= lista_expresiones:lst COMMA expresion:e
+      {:
+         lst.add(e.toString());
+         RESULT = lst;
+      :}
+  | expresion:e
+      {:
+         java.util.List<String> l = new java.util.ArrayList<>();
+         l.add(e.toString());
+         RESULT = l;
+      :}
   ;
 
 /*  Estructuras de control 
@@ -779,47 +862,92 @@ condicion
    - paréntesis
 */
 expresion
-  ::= expresion PLUS expresion
-      {: RESULT = null; :}
-  | expresion MINUS expresion
-      {: RESULT = null; :}
-  | expresion TIMES expresion
-      {: RESULT = null; :}
-  | expresion SLASH expresion
-      {: RESULT = null; :}
+  ::= expresion:e1 PLUS expresion:e2
+      {:
+         // CONSTANT FOLDING PARA SUMA
+         if (e1 instanceof Integer && e2 instanceof Integer) {
+             RESULT = (int)e1 + (int)e2;
+         } else if (e1 instanceof Double && e2 instanceof Double) {
+             RESULT = (double)e1 + (double)e2;
+         } else {
+             RESULT = null; // no se puede optimizar
+         }
+      :}
+
+  | expresion:e1 MINUS expresion:e2
+      {:
+          // CONSTANT FOLDING PARA RESTA
+          if (e1 instanceof Integer && e2 instanceof Integer) {
+              RESULT = (int)e1 - (int)e2;
+          } else if (e1 instanceof Double && e2 instanceof Double) {
+              RESULT = (double)e1 - (double)e2;
+          } else {
+              RESULT = null;
+          }
+      :}
+  | expresion:e1 TIMES expresion:e2
+      {:
+         if (e1 instanceof Integer && e2 instanceof Integer) {
+             RESULT = (int)e1 * (int)e2;
+         } else if (e1 instanceof Double && e2 instanceof Double) {
+             RESULT = (double)e1 * (double)e2;
+         } else {
+             RESULT = null;
+         }
+      :}
+  | expresion:e1 SLASH expresion:e2
+      {:
+         if (e1 instanceof Integer && e2 instanceof Integer) {
+             if ((int)e2 == 0) {
+                 addErrSemantico(-1, -1, "División entre cero.");
+                 RESULT = null;
+             } else {
+                 RESULT = (int)e1 / (int)e2;
+             }
+         } else if (e1 instanceof Double && e2 instanceof Double) {
+             if ((double)e2 == 0.0) {
+                 addErrSemantico(-1, -1, "División entre cero.");
+                 RESULT = null;
+             } else {
+                 RESULT = (double)e1 / (double)e2;
+             }
+         } else {
+             RESULT = null;
+         }
+      :}
   | expresion DIV expresion
-      {: RESULT = null; :}
+      {: RESULT = 0; :}
   | expresion MOD expresion
-      {: RESULT = null; :}
+      {: RESULT = 0; :}
 
   | expresion INC      /* x++ */
-      {: RESULT = null; :}
+      {: RESULT = 0; :}
   | expresion DEC      /* x-- */
-      {: RESULT = null; :}
+      {: RESULT = 0; :}
   | INC expresion      /* ++x */
-      {: RESULT = null; :}
+      {: RESULT = 0; :}
   | DEC expresion      /* --x */
-      {: RESULT = null; :}
+      {: RESULT = 0; :}
 
   | expresion EQ expresion
-      {: RESULT = null; :}
+      {: RESULT = true; :}
   | expresion NEQ expresion
-      {: RESULT = null; :}
+      {: RESULT = true; :}
   | expresion LT expresion
-      {: RESULT = null; :}
+      {: RESULT = true; :}
   | expresion LE expresion
-      {: RESULT = null; :}
+      {: RESULT = true; :}
   | expresion GT expresion
-      {: RESULT = null; :}
+      {: RESULT = true; :}
   | expresion GE expresion
-      {: RESULT = null; :}
+      {: RESULT = true; :}
 
   | expresion AND expresion
-      {: RESULT = null; :}
+      {: RESULT = true; :}
   | expresion OR expresion
-      {: RESULT = null; :}
+      {: RESULT = true; :}
   | NOT expresion
-      {: RESULT = null; :}
+      {: RESULT = true; :}
 
   | factor
       {: RESULT = null; :}
@@ -827,21 +955,67 @@ expresion
 
 /* factor */
 factor
-  ::= ID
-      {: RESULT = null; :}
-  | INT_LIT
-      {: RESULT = null; :}
-  | REAL_LIT
-      {: RESULT = null; :}
-  | STRING_LIT
-      {: RESULT = null; :}
-  | CHAR_LIT
-      {: RESULT = null; :}
-  | ID LPAREN parametros_llamada_opt RPAREN
-      {: RESULT = null; :}
-  | LPAREN expresion RPAREN
-      {: RESULT = null; :}
-    | LPAREN error RPAREN
-        {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right, "Expresion entre paréntesis mal formada."); :}
+  ::= ID:id
+      {:
+         // VALIDAR VARIABLE NO DECLARADA
+         if (!tabla.existe(id)) {
+            addErrSemantico(idleft, idright,
+                "Variable '" + id + "' no ha sido declarada.");
+         }
+
+         // USAR PILA SEMÁNTICA
+         pila.push(id);
+         RESULT = id;
+      :}
+
+  | INT_LIT:n
+      {:
+         int val = Integer.parseInt(n);
+         pila.push(val);
+         RESULT = val;
+      :}
+
+  | REAL_LIT:n
+      {:
+         double val = Double.parseDouble(n);
+         pila.push(val);
+         RESULT = val;
+      :}
+
+  | STRING_LIT:s
+      {:
+         pila.push(s);
+         RESULT = s;
+      :}
+
+  | CHAR_LIT:c
+      {:
+         pila.push(c);
+         RESULT = c;
+      :}
+
+  | ID:fname LPAREN parametros_llamada_opt RPAREN
+      {:
+         // VALIDAR FUNCIÓN NO DECLARADA
+         if (!tabla.existeFuncion(fname)) {
+             addErrSemantico(fnameleft, fnameright,
+                 "Función '" + fname + "' no ha sido declarada.");
+         }
+
+         pila.push(fname + "()");
+         RESULT = fname;
+      :}
+
+  | LPAREN expresion:e RPAREN
+      {:
+         RESULT = e;
+      :}
+
+  | LPAREN error RPAREN
+      {:
+         addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left,
+                ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right,
+                "Expresion entre paréntesis mal formada.");
+      :}
   ;
 

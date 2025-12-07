@@ -1,1 +1,8 @@
-a ;":"L
+PROGRAM Test1
+VAR
+x: INT;
+y: INT;
+BEGIN
+x := 10;
+y := x + 5;
+END
