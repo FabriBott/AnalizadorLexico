@@ -34,7 +34,16 @@ public class TablaSimbolos {
     // ================= VARIABLES =================
 
     public boolean existe(String id) {
-        return variables.containsKey(id);
+        if (variables.containsKey(id + "@local"))
+            return true;
+        if (variables.containsKey(id + "@global"))
+            return true;
+
+        for (Variable v : variables.values()) {
+            if (v.nombre.equals(id))
+                return true;
+        }
+        return false;
     }
 
     public boolean insertar(String id, String tipo, String ambito) {
