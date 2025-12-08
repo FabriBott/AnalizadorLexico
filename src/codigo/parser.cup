@@ -907,62 +907,92 @@ condicion
 */
 expresion
   ::= expresion:e1 PLUS expresion:e2
-      {:
-         // CONSTANT FOLDING PARA SUMA
-         if (e1 instanceof Integer && e2 instanceof Integer) {
-             RESULT = (int)e1 + (int)e2;
-         } else if (e1 instanceof Double && e2 instanceof Double) {
-             RESULT = (double)e1 + (double)e2;
-         } else {
-             RESULT = null; // no se puede optimizar
-         }
-      :}
+    {:
+        // CONSTANT FOLDING
+        if (e1 instanceof Integer && e2 instanceof Integer) {
+            RESULT = (int)e1 + (int)e2;
+        } 
+        else if (e1 instanceof Double && e2 instanceof Double) {
+            RESULT = (double)e1 + (double)e2;
+        } 
+        else {
+            // GENERACIÓN DE CÓDIGO (CUANDO NO ES CONSTANTE)
+            String t = codigo.nuevoTemporal();
+            codigo.emit(t + " = " + e1 + " + " + e2);
+            RESULT = t;
+        }
+    :}
+
 
   | expresion:e1 MINUS expresion:e2
-      {:
-          // CONSTANT FOLDING PARA RESTA
-          if (e1 instanceof Integer && e2 instanceof Integer) {
-              RESULT = (int)e1 - (int)e2;
-          } else if (e1 instanceof Double && e2 instanceof Double) {
-              RESULT = (double)e1 - (double)e2;
-          } else {
-              RESULT = null;
-          }
-      :}
+    {:
+        if (e1 instanceof Integer && e2 instanceof Integer) {
+            RESULT = (int)e1 - (int)e2;
+        } 
+        else if (e1 instanceof Double && e2 instanceof Double) {
+            RESULT = (double)e1 - (double)e2;
+        } 
+        else {
+            String t = codigo.nuevoTemporal();
+            codigo.emit(t + " = " + e1 + " - " + e2);
+            RESULT = t;
+        }
+    :}
+
   | expresion:e1 TIMES expresion:e2
-      {:
-         if (e1 instanceof Integer && e2 instanceof Integer) {
-             RESULT = (int)e1 * (int)e2;
-         } else if (e1 instanceof Double && e2 instanceof Double) {
-             RESULT = (double)e1 * (double)e2;
-         } else {
-             RESULT = null;
-         }
-      :}
+    {:
+        if (e1 instanceof Integer && e2 instanceof Integer) {
+            RESULT = (int)e1 * (int)e2;
+        } 
+        else if (e1 instanceof Double && e2 instanceof Double) {
+            RESULT = (double)e1 * (double)e2;
+        } 
+        else {
+            String t = codigo.nuevoTemporal();
+            codigo.emit(t + " = " + e1 + " * " + e2);
+            RESULT = t;
+        }
+    :}
+
   | expresion:e1 SLASH expresion:e2
-      {:
-         if (e1 instanceof Integer && e2 instanceof Integer) {
-             if ((int)e2 == 0) {
-                 addErrSemantico(-1, -1, "División entre cero.");
-                 RESULT = null;
-             } else {
-                 RESULT = (int)e1 / (int)e2;
-             }
-         } else if (e1 instanceof Double && e2 instanceof Double) {
-             if ((double)e2 == 0.0) {
-                 addErrSemantico(-1, -1, "División entre cero.");
-                 RESULT = null;
-             } else {
-                 RESULT = (double)e1 / (double)e2;
-             }
-         } else {
-             RESULT = null;
-         }
-      :}
-  | expresion DIV expresion
-      {: RESULT = 0; :}
-  | expresion MOD expresion
-      {: RESULT = 0; :}
+    {:
+        if (e1 instanceof Integer && e2 instanceof Integer) {
+            if ((int)e2 == 0) {
+                addErrSemantico(-1, -1, "División entre cero.");
+                RESULT = null;
+            } else {
+                RESULT = (int)e1 / (int)e2;
+            }
+        } 
+        else if (e1 instanceof Double && e2 instanceof Double) {
+            if ((double)e2 == 0.0) {
+                addErrSemantico(-1, -1, "División entre cero.");
+                RESULT = null;
+            } else {
+                RESULT = (double)e1 / (double)e2;
+            }
+        } 
+        else {
+            String t = codigo.nuevoTemporal();
+            codigo.emit(t + " = " + e1 + " / " + e2);
+            RESULT = t;
+        }
+    :}
+
+  | expresion:e1 DIV expresion:e2
+    {:
+        String t = codigo.nuevoTemporal();
+        codigo.emit(t + " = " + e1 + " DIV " + e2);
+        RESULT = t;
+    :}
+
+  | expresion:e1 MOD expresion:e2
+    {:
+        String t = codigo.nuevoTemporal();
+        codigo.emit(t + " = " + e1 + " MOD " + e2);
+        RESULT = t;
+    :}
+
 
   | expresion INC      /* x++ */
       {: RESULT = 0; :}

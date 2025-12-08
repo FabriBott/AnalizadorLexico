@@ -1,2 +1,5 @@
-t0 = 14
-x = t0
+t0 = a + b
+t1 = t0
+suma = t1
+t2 = suma
+x = t2

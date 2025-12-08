@@ -1927,15 +1927,20 @@ class CUP$Parser$actions {
 		int e2right = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		Object e2 = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
 		
-         // CONSTANT FOLDING PARA SUMA
-         if (e1 instanceof Integer && e2 instanceof Integer) {
-             RESULT = (int)e1 + (int)e2;
-         } else if (e1 instanceof Double && e2 instanceof Double) {
-             RESULT = (double)e1 + (double)e2;
-         } else {
-             RESULT = null; // no se puede optimizar
-         }
-      
+        // CONSTANT FOLDING
+        if (e1 instanceof Integer && e2 instanceof Integer) {
+            RESULT = (int)e1 + (int)e2;
+        } 
+        else if (e1 instanceof Double && e2 instanceof Double) {
+            RESULT = (double)e1 + (double)e2;
+        } 
+        else {
+            // GENERACIÓN DE CÓDIGO (CUANDO NO ES CONSTANTE)
+            String t = codigo.nuevoTemporal();
+            codigo.emit(t + " = " + e1 + " + " + e2);
+            RESULT = t;
+        }
+    
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("expresion",26, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -1951,15 +1956,18 @@ class CUP$Parser$actions {
 		int e2right = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		Object e2 = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
 		
-          // CONSTANT FOLDING PARA RESTA
-          if (e1 instanceof Integer && e2 instanceof Integer) {
-              RESULT = (int)e1 - (int)e2;
-          } else if (e1 instanceof Double && e2 instanceof Double) {
-              RESULT = (double)e1 - (double)e2;
-          } else {
-              RESULT = null;
-          }
-      
+        if (e1 instanceof Integer && e2 instanceof Integer) {
+            RESULT = (int)e1 - (int)e2;
+        } 
+        else if (e1 instanceof Double && e2 instanceof Double) {
+            RESULT = (double)e1 - (double)e2;
+        } 
+        else {
+            String t = codigo.nuevoTemporal();
+            codigo.emit(t + " = " + e1 + " - " + e2);
+            RESULT = t;
+        }
+    
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("expresion",26, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -1975,14 +1983,18 @@ class CUP$Parser$actions {
 		int e2right = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		Object e2 = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
 		
-         if (e1 instanceof Integer && e2 instanceof Integer) {
-             RESULT = (int)e1 * (int)e2;
-         } else if (e1 instanceof Double && e2 instanceof Double) {
-             RESULT = (double)e1 * (double)e2;
-         } else {
-             RESULT = null;
-         }
-      
+        if (e1 instanceof Integer && e2 instanceof Integer) {
+            RESULT = (int)e1 * (int)e2;
+        } 
+        else if (e1 instanceof Double && e2 instanceof Double) {
+            RESULT = (double)e1 * (double)e2;
+        } 
+        else {
+            String t = codigo.nuevoTemporal();
+            codigo.emit(t + " = " + e1 + " * " + e2);
+            RESULT = t;
+        }
+    
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("expresion",26, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -1998,24 +2010,28 @@ class CUP$Parser$actions {
 		int e2right = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		Object e2 = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
 		
-         if (e1 instanceof Integer && e2 instanceof Integer) {
-             if ((int)e2 == 0) {
-                 addErrSemantico(-1, -1, "División entre cero.");
-                 RESULT = null;
-             } else {
-                 RESULT = (int)e1 / (int)e2;
-             }
-         } else if (e1 instanceof Double && e2 instanceof Double) {
-             if ((double)e2 == 0.0) {
-                 addErrSemantico(-1, -1, "División entre cero.");
-                 RESULT = null;
-             } else {
-                 RESULT = (double)e1 / (double)e2;
-             }
-         } else {
-             RESULT = null;
-         }
-      
+        if (e1 instanceof Integer && e2 instanceof Integer) {
+            if ((int)e2 == 0) {
+                addErrSemantico(-1, -1, "División entre cero.");
+                RESULT = null;
+            } else {
+                RESULT = (int)e1 / (int)e2;
+            }
+        } 
+        else if (e1 instanceof Double && e2 instanceof Double) {
+            if ((double)e2 == 0.0) {
+                addErrSemantico(-1, -1, "División entre cero.");
+                RESULT = null;
+            } else {
+                RESULT = (double)e1 / (double)e2;
+            }
+        } 
+        else {
+            String t = codigo.nuevoTemporal();
+            codigo.emit(t + " = " + e1 + " / " + e2);
+            RESULT = t;
+        }
+    
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("expresion",26, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2024,7 +2040,17 @@ class CUP$Parser$actions {
           case 95: // expresion ::= expresion DIV expresion 
             {
               Object RESULT =null;
-		 RESULT = 0; 
+		int e1left = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).left;
+		int e1right = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).right;
+		Object e1 = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-2)).value;
+		int e2left = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
+		int e2right = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
+		Object e2 = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
+		
+        String t = codigo.nuevoTemporal();
+        codigo.emit(t + " = " + e1 + " DIV " + e2);
+        RESULT = t;
+    
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("expresion",26, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2033,7 +2059,17 @@ class CUP$Parser$actions {
           case 96: // expresion ::= expresion MOD expresion 
             {
               Object RESULT =null;
-		 RESULT = 0; 
+		int e1left = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).left;
+		int e1right = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).right;
+		Object e1 = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-2)).value;
+		int e2left = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
+		int e2right = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
+		Object e2 = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
+		
+        String t = codigo.nuevoTemporal();
+        codigo.emit(t + " = " + e1 + " MOD " + e2);
+        RESULT = t;
+    
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("expresion",26, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;

@@ -1,6 +1,10 @@
-PROGRAM Test8
+PROGRAM Test5
 VAR
   x: INT;
+FUNCTION suma(INT a, INT b): INT
 BEGIN
-  x := 2 + 3 * 4;   { puede optimizarse a x = 14 }
+  suma := a + b;
+END
+BEGIN
+  x := suma(3,5);
 END
