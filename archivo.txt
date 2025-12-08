@@ -1,8 +1,6 @@
-PROGRAM Test1
+PROGRAM Test8
 VAR
-x: INT;
-y: INT;
+  x: INT;
 BEGIN
-x := 10;
-y := x + 5;
+  x := 2 + 3 * 4;   { puede optimizarse a x = 14 }
 END

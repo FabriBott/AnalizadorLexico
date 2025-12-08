@@ -23,6 +23,24 @@ parser code {:
     private int ultimaLineaError = -1; // para evitar cascada
     //private int ultimaColumnaError = -1; 
 
+    private String tipoDe(Object v) {
+        if (v instanceof Integer) {
+            return "INT";
+        } else if (v instanceof Double) {
+            return "REAL";
+        } else if (v instanceof String) {
+            // OJO: aquí se mezclan STRING_LIT y CHAR_LIT si ambos los manejas como String.
+            // Si quieres distinguir, revisa cómo guardas el resultado en factor.
+            return "STRING";
+        } else if (v != null && v.getClass().getSimpleName().equals("Character")) {
+            return "CHAR";
+        } else {
+            // Tipo desconocido o no constante: podrías usar null o algún marcador
+            return "DESCONOCIDO";
+        }
+    }
+
+
     private String tok(Symbol s){
         if (s == null) return "<EOF>";
         // Detecta EOF por el símbolo, que es lo más confiable
@@ -222,6 +240,8 @@ programa
   ::= PROGRAM ID decls_globales_opt funcs_opt bloque_main
       {: RESULT = null;
           System.out.println("\n");
+          System.out.println(">>> USANDO Parser ACTUALIZADO <<<");
+
           if (erroresSemanticos.isEmpty()) {
               System.out.println("No se encontraron errores semánticos.");
               tabla.imprimir();                    
@@ -366,22 +386,35 @@ lista_func
    - PROCEDURE sin tipo de retorno
 */
 /* ==== Encabezados de FUNCTION / PROCEDURE con recuperación robusta ==== */
+/* Encabezado correcto de FUNCTION con tipo de retorno */
 funcion
- /* FUNCTION correcto con tipo de retorno */
- ::= FUNCTION ID:fname LPAREN params_formales_opt RPAREN COLON tipo:ret bloque_func
+ ::= FUNCTION ID:fname LPAREN params_formales_opt RPAREN COLON tipo:ret
       {:
-         // ✅ REGISTRAR FUNCIÓN EN TABLA
+         // 1. Registrar la función (para llamadas desde fuera)
          if (!tabla.insertarFuncion(fname, ret, tiposParametrosActuales)) {
              addErrSemantico(fnameleft, fnameright,
                  "Función '" + fname + "' ya fue declarada.");
          }
 
-         // limpiar para la siguiente función
+         // 2. Registrar el nombre de la función como variable local
+         //    para permitir:  suma := a + b;
+         if (!tabla.insertar(fname, ret, "local")) {
+             addErrSemantico(fnameleft, fnameright,
+                 "El nombre de la función '" + fname + "' ya se usa como identificador local.");
+         }
+
+         // 3. Estamos dentro del ámbito local de la función
+         ambitoActual = "local";
+      :}
+    bloque_func
+      {:
+         // 4. Al terminar el bloque, limpiamos locales y volvemos a global
+         tabla.limpiarLocales();
          tiposParametrosActuales = new ArrayList<>();
          ambitoActual = "global";
-
          RESULT = null;
       :}
+
 
 
  /* Error en parámetros pero sí hay ')' y luego ': tipo' */
@@ -486,6 +519,11 @@ param_formal
       {:
          // ✅ GUARDAR TIPO DE PARÁMETRO
          tiposParametrosActuales.add(t);
+         // REGISTRAR EL PARAMETRO COMO VARIABLE LOCAL
+         if (!tabla.insertar(id, t, "local")) {
+             addErrSemantico(idleft, idright,
+                 "Parámetro formal '" + id + "' ya existe.");
+         }
          ambitoActual = "local";
          RESULT = null;
       :}
@@ -508,17 +546,14 @@ param_formal
 bloque_func
   ::= BEGIN decls_locales_opt lista_sentencias END
       {:
-         tabla.limpiarLocales();
-         ambitoActual = "global";   // VOLVER AL ÁMBITO GLOBAL
          RESULT = null;
       :}
   | BEGIN decls_locales_opt error END
       {:
-        tabla.limpiarLocales();
-        ambitoActual = "global";   // VOLVER AL ÁMBITO GLOBAL
         addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left,
                ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right,
                "Cuerpo de funcion/procedimiento mal formado: verifica sentencias y ';'.");
+        RESULT = null;
       :}
   ;
 
@@ -587,17 +622,23 @@ lista_sentencias
 
 /* sentencia (factorizada por prefijo ID) */
 sentencia
-  /* ID := expr ; */
+/* ID := expr ; */
   ::= ID:id ASSIGN expresion:val SEMI
       {:
-         if (!tabla.existe(id)) {
+         boolean esRetornoFuncion = tabla.existeFuncion(id);
+
+         if (!tabla.existe(id) && !esRetornoFuncion) {
+             // No es variable ni función → error real
              addErrSemantico(idleft, idright,
-                 "Variable '" + id + "' no ha sido declarada.");
-         } else if (erroresSemanticos.isEmpty()) {
+                 "Identificador '" + id + "' no ha sido declarado.");
+         } else if (tabla.existe(id) && erroresSemanticos.isEmpty()) {
+             // Solo generamos código si es variable declarada
              codigo.genAsignacion(id, val);
          }
+
          RESULT = null;
       :}
+
 
 
   /* RECUPERACIÓN: falta ')' antes de ';' en una asignación (p.ej., x := (1 + 2;) */
@@ -738,16 +779,19 @@ parametros_llamada_opt
 lista_expresiones
   ::= lista_expresiones:lst COMMA expresion:e
       {:
-         lst.add(e.toString());
+         String tipoReal = tipoDe(e);
+         lst.add(tipoReal);
          RESULT = lst;
       :}
   | expresion:e
       {:
          java.util.List<String> l = new java.util.ArrayList<>();
-         l.add(e.toString());
+         String tipoReal = tipoDe(e);
+         l.add(tipoReal);
          RESULT = l;
       :}
   ;
+
 
 /*  Estructuras de control 
 
@@ -958,7 +1002,7 @@ factor
   ::= ID:id
       {:
          // VALIDAR VARIABLE NO DECLARADA
-         if (!tabla.existe(id)) {
+         if (!tabla.existe(id) && !tabla.existeFuncion(id)) {
             addErrSemantico(idleft, idright,
                 "Variable '" + id + "' no ha sido declarada.");
          }
@@ -993,18 +1037,32 @@ factor
          pila.push(c);
          RESULT = c;
       :}
+    | ID:fname LPAREN parametros_llamada_opt:params RPAREN
+        {:
+            // 1. Validar que la función exista
+            if (!tabla.existeFuncion(fname)) {
+                addErrSemantico(fnameleft, fnameright,
+                    "Función '" + fname + "' no ha sido declarada.");
+            } else {
+                // 2. Validar cantidad de parámetros
+                int cantidadReal = ((java.util.List)params).size();
+                if (!tabla.validarCantidadParametros(fname, cantidadReal)) {
+                    addErrSemantico(fnameleft, fnameright,
+                        "Cantidad incorrecta de parámetros en la llamada a '" + fname + "'.");
+                } else {
+                    // 3. (Opcional) Validar tipos de parámetros
+                    if (!tabla.validarTiposParametros(fname, (java.util.List<String>)params)) {
+                        addErrSemantico(fnameleft, fnameright,
+                            "Tipos incorrectos de parámetros en la llamada a '" + fname + "'.");
+                    }
+                }
+            }
 
-  | ID:fname LPAREN parametros_llamada_opt RPAREN
-      {:
-         // VALIDAR FUNCIÓN NO DECLARADA
-         if (!tabla.existeFuncion(fname)) {
-             addErrSemantico(fnameleft, fnameright,
-                 "Función '" + fname + "' no ha sido declarada.");
-         }
+            // Para la pila y la evaluación
+            pila.push(fname + "()");
+            RESULT = fname;
+        :}
 
-         pila.push(fname + "()");
-         RESULT = fname;
-      :}
 
   | LPAREN expresion:e RPAREN
       {:

@@ -43,6 +43,11 @@ public class TablaSimbolos {
             if (v.nombre.equals(id))
                 return true;
         }
+    // 2. NUEVO: si existe como función, también considerar que "existe"
+        if (funciones.containsKey(id))
+            return true;        
+    // 3. Si no está ni como variable ni como función
+
         return false;
     }
 
