@@ -308,15 +308,20 @@ lista_decl_var
 
 decl_var
   ::= ID:id COLON tipo:t SEMI
-     {: 
-         String nombre = id;
+     {:
+         String nombre = id;      // ← ESTA LÍNEA FALTABA
          String tipoVar = t;
 
          if (!tabla.insertar(nombre, tipoVar, ambitoActual)) {
              addErrSemantico(idleft, idright,
                  "Variable '" + nombre + "' ya definida en el ámbito " + ambitoActual + ".");
          }
+
+         if ("global".equals(ambitoActual)) {
+             codigo.declararVarGlobal(nombre, tipoVar);
+         }
      :}
+
   | ID:id COMMA lista_ids:rest COLON tipo:t SEMI
      {:
          String tipoVar = t;
@@ -331,6 +336,9 @@ decl_var
                  addErrSemantico(idleft, idright,
                      "Variable '" + nom + "' ya definida en el ámbito " + ambitoActual + ".");
              }
+            if (ambitoActual.equals("global")) {
+                codigo.declararVarGlobal(id, tipoVar);
+            }
          }
      :}
   ;
@@ -761,11 +769,19 @@ read_stmt
 
 /* WRITE(...) */
 write_stmt
-  ::= WRITE LPAREN lista_expresiones RPAREN
-      {: RESULT = null; :}
+  ::= WRITE LPAREN lista_expresiones:args RPAREN
+      {:
+         codigo.genWrite(args);
+         RESULT = null;
+      :}
   | WRITE LPAREN error RPAREN
-      {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right, "WRITE: lista de expresiones mal formada dentro de '()'."); :}
+      {:
+         addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left,
+                ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right,
+                "WRITE: lista de expresiones mal formada dentro de '()'.");
+      :}
   ;
+
 
 /* parámetros reales en la llamada */
 parametros_llamada_opt
@@ -791,6 +807,8 @@ lista_expresiones
          RESULT = l;
       :}
   ;
+
+
 
 
 /*  Estructuras de control 
