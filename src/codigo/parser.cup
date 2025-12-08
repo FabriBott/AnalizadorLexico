@@ -993,8 +993,8 @@ expresion
   | NOT expresion
       {: RESULT = true; :}
 
-  | factor
-      {: RESULT = null; :}
+  | factor:f
+      {: RESULT = f; :}
   ;
 
 /* factor */

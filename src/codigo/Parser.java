@@ -727,7 +727,7 @@ class CUP$Parser$actions {
               tabla.imprimir();                    
               codigo.generarArchivo("salida.asm"); 
           } else {
-              System.out.println("ERRORES SEM√?NTICOS ENCONTRADOS: " + erroresSemanticos.size());
+              System.out.println("ERRORES SEM√ÅNTICOS ENCONTRADOS: " + erroresSemanticos.size());
               // Los errores ya fueron impresos en addErrSemantico, este es el resumen
           }
           System.out.println(""); 
@@ -1247,7 +1247,7 @@ class CUP$Parser$actions {
 		int idright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		String id = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
 		
-         // ‚úÖ GUARDAR TIPO DE PAR√?METRO
+         // ‚úÖ GUARDAR TIPO DE PAR√ÅMETRO
          tiposParametrosActuales.add(t);
          // REGISTRAR EL PARAMETRO COMO VARIABLE LOCAL
          if (!tabla.insertar(id, t, "local")) {
@@ -2159,7 +2159,10 @@ class CUP$Parser$actions {
           case 110: // expresion ::= factor 
             {
               Object RESULT =null;
-		 RESULT = null; 
+		int fleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
+		int fright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
+		Object f = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
+		 RESULT = f; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("expresion",26, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -2178,7 +2181,7 @@ class CUP$Parser$actions {
                 "Variable '" + id + "' no ha sido declarada.");
          }
 
-         // USAR PILA SEM√?NTICA
+         // USAR PILA SEM√ÅNTICA
          pila.push(id);
          RESULT = id;
       
