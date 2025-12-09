@@ -1642,11 +1642,10 @@ class CUP$Parser$actions {
                  addErrSemantico(fnameleft, fnameright,
                      "Cantidad incorrecta de parámetros en la llamada a '" + fname + "'.");
              } else {
-                 // 3. (OPCIONAL) Check de tipos muy simple: asumimos INT
                  java.util.List<String> tiposLlamada = new java.util.ArrayList<>();
-                 for (int i = 0; i < cantidadReal; i++) {
-                     tiposLlamada.add("INT");
-                 }
+                    for (Object arg : args) {
+                        tiposLlamada.add(tipoDe(arg));
+                    }
                  if (!tabla.validarTiposParametros(fname, tiposLlamada)) {
                      addErrSemantico(fnameleft, fnameright,
                          "Tipos incorrectos de parámetros en la llamada a '" + fname + "'.");
@@ -2363,8 +2362,8 @@ class CUP$Parser$actions {
                     // construir lista de tipos simples INT (porque tu lenguaje lo usa así)
                     java.util.List<String> tiposLlamada = new java.util.ArrayList<>();
 
-                    for (int i = 0; i < cantidadReal; i++) {
-                        tiposLlamada.add("INT");
+                    for (Object arg : (java.util.List<Object>) params) {
+                        tiposLlamada.add(tipoDe(arg));
                     }
 
                     if (!tabla.validarTiposParametros(fname, tiposLlamada)) {

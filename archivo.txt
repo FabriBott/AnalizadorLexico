@@ -1,14 +1,8 @@
-Program Matematicas 
-VAR 
-a, b : INT; 
-FUNCTION Sumar(INT numero1, INT numero2) : INT 
-BEGIN Sumar := numero1 + numero2; 
-END 
-PROCEDURE Mostrar(INT resultado) 
-BEGIN 
-WRITE("Resultado: ", resultado); 
-END 
-BEGIN 
-a := 10; b := 20; 
-Mostrar(Sumar(a, b));
+PROGRAM Test9
+VAR
+  x: INT;
+  y: INT;
+BEGIN
+  x := 10;
+  y := 20;
 END
