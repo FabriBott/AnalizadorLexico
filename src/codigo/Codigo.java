@@ -59,11 +59,13 @@ public class Codigo {
     }
 
     // WRITE(x)  ->  PRINT x  (pseudo-instrucción)
-    public void genWrite(List<String> nombres) {
-        for(String n : nombres){
-            emit("PRINT " + n);
+    public void genWrite(java.util.List<Object> exprs) {
+        for (Object e : exprs) {
+            emit("PRINT " + e);
         }
     }
+
+
 
 
     /* ========= SALIDA A ARCHIVO ========= */

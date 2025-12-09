@@ -577,6 +577,11 @@ public class Parser extends java_cup.runtime.lr_parser {
         return t;
     }
 
+    private String tablaSimbolosTexto = "";
+    public String getTablaSimbolosTexto() { 
+        return tablaSimbolosTexto; 
+    }
+
 
     /** registrar error (se puede modificar o extender los casos de errores...)*/
     private void addErr(int line, int col, String msg){
@@ -722,12 +727,17 @@ class CUP$Parser$actions {
           System.out.println("\n");
           System.out.println(">>> USANDO Parser ACTUALIZADO <<<");
 
-          if (erroresSemanticos.isEmpty()) {
-              System.out.println("No se encontraron errores semánticos.");
-              tabla.imprimir();                    
-              codigo.generarArchivo("salida.asm"); 
+        if (erroresSemanticos.isEmpty()) {
+            System.out.println("No se encontraron errores semánticos.");
+            
+            // NUEVO: guardar la tabla en el campo y también mostrarla por consola
+            tablaSimbolosTexto = tabla.comoTexto();
+            System.out.print(tablaSimbolosTexto);
+
+            codigo.generarArchivo("salida.asm"); 
+
           } else {
-              System.out.println("ERRORES SEMÁNTICOS ENCONTRADOS: " + erroresSemanticos.size());
+              System.out.println("ERRORES SEMANTICOS ENCONTRADOS: " + erroresSemanticos.size());
               // Los errores ya fueron impresos en addErrSemantico, este es el resumen
           }
           System.out.println(""); 
@@ -842,15 +852,20 @@ class CUP$Parser$actions {
 		int tleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
 		int tright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
 		String t = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
-		 
-         String nombre = id;
+		
+         String nombre  = id;
          String tipoVar = t;
 
          if (!tabla.insertar(nombre, tipoVar, ambitoActual)) {
              addErrSemantico(idleft, idright,
                  "Variable '" + nombre + "' ya definida en el ámbito " + ambitoActual + ".");
          }
-     
+
+         // 👉 SOLO las globales van a la sección .DATA
+         if ("global".equals(ambitoActual)) {
+             codigo.declararVarGlobal(nombre, tipoVar);
+         }
+      
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("decl_var",3, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -871,18 +886,26 @@ class CUP$Parser$actions {
 		
          String tipoVar = t;
 
+         // Primero el ID principal (a)
          if (!tabla.insertar(id, tipoVar, ambitoActual)) {
              addErrSemantico(idleft, idright,
                  "Variable '" + id + "' ya definida en el ámbito " + ambitoActual + ".");
          }
+         if ("global".equals(ambitoActual)) {
+             codigo.declararVarGlobal(id, tipoVar);
+         }
 
+         // Luego todos los de la lista (b, c, ...)
          for (String nom : rest) {
              if (!tabla.insertar(nom, tipoVar, ambitoActual)) {
                  addErrSemantico(idleft, idright,
                      "Variable '" + nom + "' ya definida en el ámbito " + ambitoActual + ".");
              }
+             if ("global".equals(ambitoActual)) {
+                 codigo.declararVarGlobal(nom, tipoVar);
+             }
          }
-     
+      
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("decl_var",3, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-5)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -1147,7 +1170,20 @@ class CUP$Parser$actions {
           case 30: // funcion ::= PROCEDURE ID LPAREN params_formales_opt RPAREN bloque_func 
             {
               Object RESULT =null;
-		 RESULT = null; 
+		int pfnameleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)).left;
+		int pfnameright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-4)).right;
+		String pfname = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-4)).value;
+		
+         // Guardamos el procedimiento como si fuera una "función" de tipo VOID
+         if (!tabla.insertarFuncion(pfname, "VOID", tiposParametrosActuales)) {
+             addErrSemantico(pfnameleft, pfnameright,
+                 "Procedimiento '" + pfname + "' ya fue declarado.");
+         }
+         // limpiar para siguiente función/procedimiento
+         tiposParametrosActuales = new java.util.ArrayList<>();
+         ambitoActual = "global";
+         RESULT = null;
+      
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("funcion",8, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-5)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -1247,7 +1283,7 @@ class CUP$Parser$actions {
 		int idright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		String id = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
 		
-         // ✅ GUARDAR TIPO DE PARÁMETRO
+         //  GUARDAR TIPO DE PARAMETRO
          tiposParametrosActuales.add(t);
          // REGISTRAR EL PARAMETRO COMO VARIABLE LOCAL
          if (!tabla.insertar(id, t, "local")) {
@@ -1591,30 +1627,33 @@ class CUP$Parser$actions {
 		String fname = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-3)).value;
 		int paramsleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
 		int paramsright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
-		Object params = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
+		java.util.List<Object> params = (java.util.List<Object>)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
 		
-         // 1. Validar que la función exista
+         java.util.List<Object> args = (java.util.List<Object>) params;
+         int cantidadReal = (args != null) ? args.size() : 0;
+
+         // 1. Validar que exista (FUNCTION o PROCEDURE)
          if (!tabla.existeFuncion(fname)) {
              addErrSemantico(fnameleft, fnameright,
-                 "Función '" + fname + "' no ha sido declarada.");
+                 "Función/Procedimiento '" + fname + "' no ha sido declarado.");
          } else {
              // 2. Validar cantidad de parámetros
-             int cantidadReal = ((List)params).size();
              if (!tabla.validarCantidadParametros(fname, cantidadReal)) {
                  addErrSemantico(fnameleft, fnameright,
                      "Cantidad incorrecta de parámetros en la llamada a '" + fname + "'.");
              } else {
-                 // 3. Validar tipos de parámetros
-                 if (params != null) {
-                     if (!tabla.validarTiposParametros(fname, (List<String>)params)) {
-                         addErrSemantico(fnameleft, fnameright,
-                             "Tipos incorrectos de parámetros en la llamada a '" + fname + "'.");
-                     }
+                 // 3. (OPCIONAL) Check de tipos muy simple: asumimos INT
+                 java.util.List<String> tiposLlamada = new java.util.ArrayList<>();
+                 for (int i = 0; i < cantidadReal; i++) {
+                     tiposLlamada.add("INT");
+                 }
+                 if (!tabla.validarTiposParametros(fname, tiposLlamada)) {
+                     addErrSemantico(fnameleft, fnameright,
+                         "Tipos incorrectos de parámetros en la llamada a '" + fname + "'.");
                  }
              }
          }
 
-         // 4. Uso de pila semántica
          pila.push(fname + "()");
          RESULT = null;
       
@@ -1668,7 +1707,13 @@ class CUP$Parser$actions {
           case 71: // write_stmt ::= WRITE LPAREN lista_expresiones RPAREN 
             {
               Object RESULT =null;
-		 RESULT = null; 
+		int argsleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
+		int argsright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
+		java.util.List<Object> args = (java.util.List<Object>)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
+		
+         codigo.genWrite((java.util.List<Object>) args);
+         RESULT = null;
+      
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("write_stmt",20, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -1677,7 +1722,13 @@ class CUP$Parser$actions {
           case 72: // write_stmt ::= WRITE LPAREN error RPAREN 
             {
               Object RESULT =null;
-		 addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right, "WRITE: lista de expresiones mal formada dentro de '()'."); 
+		
+        addErr(
+          ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left,
+          ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right,
+          "WRITE: lista de expresiones mal formada dentro de '()'."
+        );
+      
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("write_stmt",20, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -1685,10 +1736,10 @@ class CUP$Parser$actions {
           /*. . . . . . . . . . . . . . . . . . . .*/
           case 73: // parametros_llamada_opt ::= lista_expresiones 
             {
-              Object RESULT =null;
+              java.util.List<Object> RESULT =null;
 		int lleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int lright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
-		java.util.List<String> l = (java.util.List<String>)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
+		java.util.List<Object> l = (java.util.List<Object>)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
 		 RESULT = l; 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("parametros_llamada_opt",24, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
@@ -1697,8 +1748,8 @@ class CUP$Parser$actions {
           /*. . . . . . . . . . . . . . . . . . . .*/
           case 74: // parametros_llamada_opt ::= 
             {
-              Object RESULT =null;
-		 RESULT = new java.util.ArrayList<String>(); 
+              java.util.List<Object> RESULT =null;
+		 RESULT = new java.util.ArrayList<Object>(); 
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("parametros_llamada_opt",24, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
@@ -1706,17 +1757,17 @@ class CUP$Parser$actions {
           /*. . . . . . . . . . . . . . . . . . . .*/
           case 75: // lista_expresiones ::= lista_expresiones COMMA expresion 
             {
-              java.util.List<String> RESULT =null;
+              java.util.List<Object> RESULT =null;
 		int lstleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).left;
 		int lstright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)).right;
-		java.util.List<String> lst = (java.util.List<String>)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-2)).value;
+		java.util.List<Object> lst = (java.util.List<Object>)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-2)).value;
 		int eleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		Object e = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
 		
-         String tipoReal = tipoDe(e);
-         lst.add(tipoReal);
-         RESULT = lst;
+         java.util.List<Object> lista = (java.util.List<Object>) lst;
+         lista.add(e);
+         RESULT = lista;
       
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("lista_expresiones",25, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-2)), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
@@ -1725,15 +1776,14 @@ class CUP$Parser$actions {
           /*. . . . . . . . . . . . . . . . . . . .*/
           case 76: // lista_expresiones ::= expresion 
             {
-              java.util.List<String> RESULT =null;
+              java.util.List<Object> RESULT =null;
 		int eleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).left;
 		int eright = ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()).right;
 		Object e = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.peek()).value;
 		
-         java.util.List<String> l = new java.util.ArrayList<>();
-         String tipoReal = tipoDe(e);
-         l.add(tipoReal);
-         RESULT = l;
+         java.util.List<Object> lista = new java.util.ArrayList<Object>();
+         lista.add(e);
+         RESULT = lista;
       
               CUP$Parser$result = parser.getSymbolFactory().newSymbol("lista_expresiones",25, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
@@ -2217,7 +2267,7 @@ class CUP$Parser$actions {
                 "Variable '" + id + "' no ha sido declarada.");
          }
 
-         // USAR PILA SEMÁNTICA
+         // USAR PILA SEMANTICA
          pila.push(id);
          RESULT = id;
       
@@ -2296,7 +2346,7 @@ class CUP$Parser$actions {
 		String fname = (String)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-3)).value;
 		int paramsleft = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left;
 		int paramsright = ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right;
-		Object params = (Object)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
+		java.util.List<Object> params = (java.util.List<Object>)((java_cup.runtime.Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top-1)).value;
 		
             // 1. Validar que la función exista
             if (!tabla.existeFuncion(fname)) {
@@ -2310,10 +2360,18 @@ class CUP$Parser$actions {
                         "Cantidad incorrecta de parámetros en la llamada a '" + fname + "'.");
                 } else {
                     // 3. (Opcional) Validar tipos de parámetros
-                    if (!tabla.validarTiposParametros(fname, (java.util.List<String>)params)) {
+                    // construir lista de tipos simples INT (porque tu lenguaje lo usa así)
+                    java.util.List<String> tiposLlamada = new java.util.ArrayList<>();
+
+                    for (int i = 0; i < cantidadReal; i++) {
+                        tiposLlamada.add("INT");
+                    }
+
+                    if (!tabla.validarTiposParametros(fname, tiposLlamada)) {
                         addErrSemantico(fnameleft, fnameright,
                             "Tipos incorrectos de parámetros en la llamada a '" + fname + "'.");
                     }
+
                 }
             }
 

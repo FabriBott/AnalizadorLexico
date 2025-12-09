@@ -55,6 +55,11 @@ parser code {:
         return t;
     }
 
+    private String tablaSimbolosTexto = "";
+    public String getTablaSimbolosTexto() { 
+        return tablaSimbolosTexto; 
+    }
+
 
     /** registrar error (se puede modificar o extender los casos de errores...)*/
     private void addErr(int line, int col, String msg){
@@ -208,8 +213,8 @@ non terminal Object write_stmt;
 non terminal Object if_stmt;
 non terminal Object while_stmt;
 non terminal Object for_stmt;
-non terminal Object parametros_llamada_opt;
-non terminal java.util.List<String> lista_expresiones;
+non terminal java.util.List<Object> parametros_llamada_opt;
+non terminal java.util.List<Object> lista_expresiones;
 non terminal Object expresion;
 non terminal Object condicion;
 non terminal Object factor;
@@ -242,12 +247,17 @@ programa
           System.out.println("\n");
           System.out.println(">>> USANDO Parser ACTUALIZADO <<<");
 
-          if (erroresSemanticos.isEmpty()) {
-              System.out.println("No se encontraron errores semánticos.");
-              tabla.imprimir();                    
-              codigo.generarArchivo("salida.asm"); 
+        if (erroresSemanticos.isEmpty()) {
+            System.out.println("No se encontraron errores semánticos.");
+            
+            // NUEVO: guardar la tabla en el campo y también mostrarla por consola
+            tablaSimbolosTexto = tabla.comoTexto();
+            System.out.print(tablaSimbolosTexto);
+
+            codigo.generarArchivo("salida.asm"); 
+
           } else {
-              System.out.println("ERRORES SEMÁNTICOS ENCONTRADOS: " + erroresSemanticos.size());
+              System.out.println("ERRORES SEMANTICOS ENCONTRADOS: " + erroresSemanticos.size());
               // Los errores ya fueron impresos en addErrSemantico, este es el resumen
           }
           System.out.println(""); 
@@ -307,9 +317,10 @@ lista_decl_var
   ;
 
 decl_var
+  /* Caso: x : INT; */
   ::= ID:id COLON tipo:t SEMI
      {:
-         String nombre = id;      // ← ESTA LÍNEA FALTABA
+         String nombre  = id;
          String tipoVar = t;
 
          if (!tabla.insertar(nombre, tipoVar, ambitoActual)) {
@@ -317,31 +328,39 @@ decl_var
                  "Variable '" + nombre + "' ya definida en el ámbito " + ambitoActual + ".");
          }
 
+         // 👉 SOLO las globales van a la sección .DATA
          if ("global".equals(ambitoActual)) {
              codigo.declararVarGlobal(nombre, tipoVar);
          }
-     :}
+      :}
 
+  /* Caso: a, b, c : INT; */
   | ID:id COMMA lista_ids:rest COLON tipo:t SEMI
      {:
          String tipoVar = t;
 
+         // Primero el ID principal (a)
          if (!tabla.insertar(id, tipoVar, ambitoActual)) {
              addErrSemantico(idleft, idright,
                  "Variable '" + id + "' ya definida en el ámbito " + ambitoActual + ".");
          }
+         if ("global".equals(ambitoActual)) {
+             codigo.declararVarGlobal(id, tipoVar);
+         }
 
+         // Luego todos los de la lista (b, c, ...)
          for (String nom : rest) {
              if (!tabla.insertar(nom, tipoVar, ambitoActual)) {
                  addErrSemantico(idleft, idright,
                      "Variable '" + nom + "' ya definida en el ámbito " + ambitoActual + ".");
              }
-            if (ambitoActual.equals("global")) {
-                codigo.declararVarGlobal(id, tipoVar);
-            }
+             if ("global".equals(ambitoActual)) {
+                 codigo.declararVarGlobal(nom, tipoVar);
+             }
          }
-     :}
+      :}
   ;
+
 
 lista_ids ::= ID:id
      {: 
@@ -475,8 +494,19 @@ funcion
       :}
 
  /* PROCEDURE correcto (sin tipo de retorno) */
- | PROCEDURE ID LPAREN params_formales_opt RPAREN bloque_func
-      {: RESULT = null; :}
+ | PROCEDURE ID:pfname LPAREN params_formales_opt RPAREN bloque_func
+      {:
+         // Guardamos el procedimiento como si fuera una "función" de tipo VOID
+         if (!tabla.insertarFuncion(pfname, "VOID", tiposParametrosActuales)) {
+             addErrSemantico(pfnameleft, pfnameright,
+                 "Procedimiento '" + pfname + "' ya fue declarado.");
+         }
+         // limpiar para siguiente función/procedimiento
+         tiposParametrosActuales = new java.util.ArrayList<>();
+         ambitoActual = "global";
+         RESULT = null;
+      :}
+
 
  /* Error en parámetros de PROCEDURE pero sí hay ')' */
  | PROCEDURE ID:pfname LPAREN error RPAREN bloque_func
@@ -525,7 +555,7 @@ lista_params_formales
 param_formal
   ::= tipo:t ID:id
       {:
-         // ✅ GUARDAR TIPO DE PARÁMETRO
+         //  GUARDAR TIPO DE PARAMETRO
          tiposParametrosActuales.add(t);
          // REGISTRAR EL PARAMETRO COMO VARIABLE LOCAL
          if (!tabla.insertar(id, t, "local")) {
@@ -724,31 +754,35 @@ asignacion
 llamada_funcion_stmt
   ::= ID:fname LPAREN parametros_llamada_opt:params RPAREN
       {:
-         // 1. Validar que la función exista
+         java.util.List<Object> args = (java.util.List<Object>) params;
+         int cantidadReal = (args != null) ? args.size() : 0;
+
+         // 1. Validar que exista (FUNCTION o PROCEDURE)
          if (!tabla.existeFuncion(fname)) {
              addErrSemantico(fnameleft, fnameright,
-                 "Función '" + fname + "' no ha sido declarada.");
+                 "Función/Procedimiento '" + fname + "' no ha sido declarado.");
          } else {
              // 2. Validar cantidad de parámetros
-             int cantidadReal = ((List)params).size();
              if (!tabla.validarCantidadParametros(fname, cantidadReal)) {
                  addErrSemantico(fnameleft, fnameright,
                      "Cantidad incorrecta de parámetros en la llamada a '" + fname + "'.");
              } else {
-                 // 3. Validar tipos de parámetros
-                 if (params != null) {
-                     if (!tabla.validarTiposParametros(fname, (List<String>)params)) {
-                         addErrSemantico(fnameleft, fnameright,
-                             "Tipos incorrectos de parámetros en la llamada a '" + fname + "'.");
-                     }
+                 // 3. (OPCIONAL) Check de tipos muy simple: asumimos INT
+                 java.util.List<String> tiposLlamada = new java.util.ArrayList<>();
+                 for (int i = 0; i < cantidadReal; i++) {
+                     tiposLlamada.add("INT");
+                 }
+                 if (!tabla.validarTiposParametros(fname, tiposLlamada)) {
+                     addErrSemantico(fnameleft, fnameright,
+                         "Tipos incorrectos de parámetros en la llamada a '" + fname + "'.");
                  }
              }
          }
 
-         // 4. Uso de pila semántica
          pila.push(fname + "()");
          RESULT = null;
       :}
+
 
   | ID:fname LPAREN error RPAREN
       {:
@@ -766,19 +800,20 @@ read_stmt
   | READ LPAREN error RPAREN
       {: addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)).left, ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-3)).right, "READ: se esperaba 0 o 1 identificador dentro de '()'."); :}
   ;
-
 /* WRITE(...) */
 write_stmt
   ::= WRITE LPAREN lista_expresiones:args RPAREN
       {:
-         codigo.genWrite(args);
+         codigo.genWrite((java.util.List<Object>) args);
          RESULT = null;
       :}
   | WRITE LPAREN error RPAREN
       {:
-         addErr(((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left,
-                ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right,
-                "WRITE: lista de expresiones mal formada dentro de '()'.");
+        addErr(
+          ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).left,
+          ((java_cup.runtime.Symbol)CUP$Parser$stack.elementAt(CUP$Parser$top-1)).right,
+          "WRITE: lista de expresiones mal formada dentro de '()'."
+        );
       :}
   ;
 
@@ -788,25 +823,26 @@ parametros_llamada_opt
   ::= lista_expresiones:l
       {: RESULT = l; :}
   | /* vacío */
-      {: RESULT = new java.util.ArrayList<String>(); :}
+      {: RESULT = new java.util.ArrayList<Object>(); :}
   ;
 
 /* lista_expresiones: expr (, expr)* */
 lista_expresiones
   ::= lista_expresiones:lst COMMA expresion:e
       {:
-         String tipoReal = tipoDe(e);
-         lst.add(tipoReal);
-         RESULT = lst;
+         java.util.List<Object> lista = (java.util.List<Object>) lst;
+         lista.add(e);
+         RESULT = lista;
       :}
   | expresion:e
       {:
-         java.util.List<String> l = new java.util.ArrayList<>();
-         String tipoReal = tipoDe(e);
-         l.add(tipoReal);
-         RESULT = l;
+         java.util.List<Object> lista = new java.util.ArrayList<Object>();
+         lista.add(e);
+         RESULT = lista;
       :}
   ;
+
+
 
 
 
@@ -1055,7 +1091,7 @@ factor
                 "Variable '" + id + "' no ha sido declarada.");
          }
 
-         // USAR PILA SEMÁNTICA
+         // USAR PILA SEMANTICA
          pila.push(id);
          RESULT = id;
       :}
@@ -1099,10 +1135,18 @@ factor
                         "Cantidad incorrecta de parámetros en la llamada a '" + fname + "'.");
                 } else {
                     // 3. (Opcional) Validar tipos de parámetros
-                    if (!tabla.validarTiposParametros(fname, (java.util.List<String>)params)) {
+                    // construir lista de tipos simples INT (porque tu lenguaje lo usa así)
+                    java.util.List<String> tiposLlamada = new java.util.ArrayList<>();
+
+                    for (int i = 0; i < cantidadReal; i++) {
+                        tiposLlamada.add("INT");
+                    }
+
+                    if (!tabla.validarTiposParametros(fname, tiposLlamada)) {
                         addErrSemantico(fnameleft, fnameright,
                             "Tipos incorrectos de parámetros en la llamada a '" + fname + "'.");
                     }
+
                 }
             }
 

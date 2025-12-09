@@ -1,10 +1,14 @@
-PROGRAM Test5
-VAR
-  x: INT;
-FUNCTION suma(INT a, INT b): INT
-BEGIN
-  suma := a + b;
-END
-BEGIN
-  x := suma(3,5);
+Program Matematicas 
+VAR 
+a, b : INT; 
+FUNCTION Sumar(INT numero1, INT numero2) : INT 
+BEGIN Sumar := numero1 + numero2; 
+END 
+PROCEDURE Mostrar(INT resultado) 
+BEGIN 
+WRITE("Resultado: ", resultado); 
+END 
+BEGIN 
+a := 10; b := 20; 
+Mostrar(Sumar(a, b));
 END

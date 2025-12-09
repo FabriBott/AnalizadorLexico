@@ -87,24 +87,35 @@ public class TablaSimbolos {
         return true;
     }
 
-    //PUNTO 4
+    // PUNTO 4
     public void imprimir() {
-        System.out.println("\n========== TABLA DE SÍMBOLOS ==========");
-
-        System.out.println("\n--- VARIABLES ---");
-        for (Variable v : variables.values()) {
-            System.out.println("Nombre: " + v.nombre +
-                    " | Tipo: " + v.tipo +
-                    " | Ámbito: " + v.ambito);
-        }
-
-        System.out.println("\n--- FUNCIONES ---");
-        for (Funcion f : funciones.values()) {
-            System.out.println("Nombre: " + f.nombre +
-                    " | Retorno: " + f.tipoRetorno +
-                    " | Parámetros: " + f.tiposParametros);
-        }
-
-        System.out.println("======================================\n");
+        // Si todavía quieres verlo en la consola:
+        System.out.print(comoTexto());
     }
+    // NUEVO: devuelve la tabla como String para la interfaz
+    public String comoTexto() {
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("\n========== TABLA DE SÍMBOLOS ==========\n");
+
+        sb.append("\n--- VARIABLES ---\n");
+        for (Variable v : variables.values()) {
+            sb.append("Nombre: ").append(v.nombre)
+            .append(" | Tipo: ").append(v.tipo)
+            .append(" | Ámbito: ").append(v.ambito)
+            .append("\n");
+        }
+
+        sb.append("\n--- FUNCIONES ---\n");
+        for (Funcion f : funciones.values()) {
+            sb.append("Nombre: ").append(f.nombre)
+            .append(" | Retorno: ").append(f.tipoRetorno)
+            .append(" | Parámetros: ").append(f.tiposParametros)
+            .append("\n");
+        }
+
+        sb.append("======================================\n");
+        return sb.toString();
+    }
+
 }

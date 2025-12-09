@@ -109,21 +109,22 @@ public class FrmPrincipal extends javax.swing.JFrame {
         try {
             guardarEntrada(archivo, txtEntrada.getText());
 
-            // NUEVO: lista de ocurrencias token a token (tipo, lexema, línea, col)
+            // lista de ocurrencias token a token (tipo, lexema, línea, col)
             List<Occ> ocurrencias = new ArrayList<>();
 
-            // Errores léxicos y sintácticos
+            // Errores léxicos, sintácticos y semánticos
             Map<Integer, java.util.List<String>> erroresPorLinea = new TreeMap<>();
             List<String> erroresSintacticos = new ArrayList<>();
-
-            // Lista de Errores Semánticos
-            List<String> erroresSemanticos = new ArrayList<>();
+            List<String> erroresSemanticos  = new ArrayList<>();
 
             // Analiza y llena ocurrencias + errores
-            analizarArchivo(archivo, ocurrencias, erroresPorLinea, erroresSintacticos, erroresSemanticos);
+            analizarArchivo(archivo, ocurrencias, erroresPorLinea,
+                            erroresSintacticos, erroresSemanticos);
 
             // Construye un resumen correcto por TIPO -> lexema -> posiciones
-            String resumen = construirResumen(ocurrencias, erroresPorLinea, erroresSintacticos, erroresSemanticos);
+            String resumen = construirResumen(ocurrencias, erroresPorLinea,
+                                            erroresSintacticos, erroresSemanticos);
+
             txtResultado.setText(resumen);
 
         } catch (Exception ex) {
@@ -181,7 +182,6 @@ public class FrmPrincipal extends javax.swing.JFrame {
             try {
                 parser.parse();
             } catch (Exception e) {
-                // Captura de errores de parsing (si el parser lanza excepción)
                 erroresSintacticos.add("Error durante parsing: " + e.getMessage());
             }
 
@@ -191,23 +191,27 @@ public class FrmPrincipal extends javax.swing.JFrame {
                 erroresSintacticos.addAll(erroresParser);
             }
 
-            // INCLUSIÓN DE ERRORES SEMÁNTICOS: Se obtienen los errores del parser
+            // Errores semánticos
             java.util.List<String> erroresSemantic = parser.getErroresSemanticos();
             if (erroresSemantic != null && !erroresSemantic.isEmpty()) {
                 erroresSemanticos.addAll(erroresSemantic);
             }
 
+            // NUEVO: guardar texto de la tabla de símbolos
+            ultimaTablaSimbolos = parser.getTablaSimbolosTexto();
+
         } catch (Exception e) {
-            erroresSintacticos.add("Error en análisis sintáctico: " + e.getMessage());
+            erroresSintacticos.add("Error en análisis sintáctico: " + e.getMessage());}
         }
-    }
+
 
     // ===== 4) Construir salida =====
     private String construirResumen(
-            List<Occ> ocurrencias,
-            Map<Integer, java.util.List<String>> erroresPorLinea,
-            List<String> erroresSintacticos,
-            List<String> erroresSemanticos) {
+        List<Occ> ocurrencias,
+        Map<Integer, java.util.List<String>> erroresPorLinea,
+        List<String> erroresSintacticos,
+        List<String> erroresSemanticos) {
+
         StringBuilder out = new StringBuilder();
 
         out.append("=== Resumen de Tokens (sin errores) ===\n");
@@ -265,7 +269,13 @@ public class FrmPrincipal extends javax.swing.JFrame {
             }
         }
 
+        // === NUEVO: Tabla de símbolos ===
+        if (ultimaTablaSimbolos != null && !ultimaTablaSimbolos.isEmpty()) {
+            out.append(ultimaTablaSimbolos);
+        }
+
         return out.toString();
+
     }
 
     /**
@@ -317,5 +327,7 @@ public class FrmPrincipal extends javax.swing.JFrame {
     private javax.swing.JScrollPane jScrollPane2;
     private javax.swing.JTextArea txtEntrada;
     private javax.swing.JTextArea txtResultado;
+    // Guardará el último texto de la tabla de símbolos generado por el parser
+    private String ultimaTablaSimbolos = "";
     // End of variables declaration//GEN-END:variables
 }
